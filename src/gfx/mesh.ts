@@ -1,8 +1,11 @@
+import { Mat4, mat4 } from "wgpu-matrix";
+
 export interface Mesh {
   positions: Float32Array;
   uvs: Float32Array;
   normals: Float32Array;
   indices: Uint16Array;
+  model: Mat4;
 }
 
 export class Mesh {
@@ -73,6 +76,7 @@ export class Mesh {
       uvs: new Float32Array(uvs),
       normals: new Float32Array(normals),
       indices: new Uint16Array(indices),
+      model: mat4.identity(),
     };
   }
 }

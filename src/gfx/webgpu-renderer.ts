@@ -1,6 +1,17 @@
 import { Mesh } from "./mesh.ts";
 import { Renderer } from "./renderer.ts";
-import { mat4, vec3 } from "wgpu-matrix";
+import { Mat4, mat4 } from "wgpu-matrix";
+
+interface MeshCallback {
+  (model: Mat4): Mat4 | undefined;
+}
+
+type Asset = {
+  mesh: Mesh,
+  meshCallback: MeshCallback,
+  bindGroup?: GPUBindGroup,
+  uniformBuffer?: GPUBuffer,
+}
 
 /**
  * WebGPU Renderer
@@ -10,8 +21,8 @@ export class WebGPURenderer implements Renderer {
   public readonly canvas: HTMLCanvasElement;
   public readonly context: GPUCanvasContext;
   private device?: GPUDevice;
-  private shaderCode?: string;
-  private mesh?: Mesh;
+  private shaderCode: string = "";
+  private assets: Asset[] = [];
 
   public constructor(canvas: HTMLCanvasElement, context: GPUCanvasContext) {
     this.canvas = canvas;
@@ -24,13 +35,16 @@ export class WebGPURenderer implements Renderer {
     this.shaderCode = shaderCode;
   }
 
-  public setMesh(mesh: Mesh) {
-    this.mesh = mesh;
+  public addMesh(mesh: Mesh, callback: MeshCallback) {
+    this.assets.push({
+      mesh,
+      meshCallback: callback,
+    })
   }
 
   public async draw(): Promise<void> {
     if (!this.shaderCode) throw Error("No shader code set");
-    if (!this.mesh) throw Error("No mesh set");
+    if (!this.assets) throw Error("No assets to draw");
 
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw Error("Couldn't WebGPU adapter request not forfilled");
@@ -44,8 +58,13 @@ export class WebGPURenderer implements Renderer {
       alphaMode: "premultiplied",
     });
 
-    const vertexBuffer = this.createBuffer(this.mesh.positions, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, true);
-    const indexBuffer = this.createBuffer(this.mesh.indices, GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, true);
+    const vertexBuffers = this.assets.map(asset => (
+      this.createBuffer(asset.mesh.positions, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, true)
+    ));
+    const indexBuffers = this.assets.map(asset => (
+      this.createBuffer(asset.mesh.indices, GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, true)
+    ));
+
     const pipeline = this.createPipeline(shaderModule);
 
     const depthTexture = this.device.createTexture({
@@ -73,57 +92,66 @@ export class WebGPURenderer implements Renderer {
 
     let projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
     let view = mat4.identity(); view[14] = -8; view[13] = -1;
-    let model = mat4.identity();
 
-    const modelUniformBuffer = this.device.createBuffer({
-      size: model.length * 4,
+    const uniformOpts = {
+      size: 16 * 4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
-    const viewUniformBuffer = this.device.createBuffer({
-      size: model.length * 4,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
-    const projectionUniformBuffer = this.device.createBuffer({
-      size: model.length * 4,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
-    const uniformBindGroup = this.device.createBindGroup({
+    };
+
+    const viewUniformBuffer = this.device.createBuffer(uniformOpts);
+    const projectionUniformBuffer = this.device.createBuffer(uniformOpts);
+
+    const viewProjectionBindGroup = this.device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         {
           binding: 0,
-          resource: { buffer: modelUniformBuffer }
-        },
-        {
-          binding: 1,
           resource: { buffer: viewUniformBuffer }
         },
         {
-          binding: 2,
+          binding: 1,
           resource: { buffer: projectionUniformBuffer }
         }
       ]
     });
 
+    this.device!.queue.writeBuffer(projectionUniformBuffer, 0, projection as Float32Array);
+    this.device!.queue.writeBuffer(viewUniformBuffer, 0, view as Float32Array);
+
+    for (let asset of this.assets) {
+      asset.uniformBuffer = this.device.createBuffer(uniformOpts);
+      asset.bindGroup = this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(1),
+        entries: [
+          {
+            binding: 0,
+            resource: { buffer: asset.uniformBuffer }
+          }
+        ],
+      });
+    }
+
     const frame = () => {
-      this.device = this.device!;
-
-      model = mat4.rotateY(model, Math.PI / 60); 
-
-      this.device.queue.writeBuffer(modelUniformBuffer, 0, model as Float32Array);
-      this.device.queue.writeBuffer(viewUniformBuffer, 0, view as Float32Array);
-      this.device.queue.writeBuffer(projectionUniformBuffer, 0, projection as Float32Array);
       (renderPassDescriptor.colorAttachments as any[])[0].view = this.context.getCurrentTexture().createView();
 
-      const commandEncoder = this.device.createCommandEncoder();
+      const commandEncoder = this.device!.createCommandEncoder();
       const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-      renderPassEncoder.setPipeline(pipeline);
-      renderPassEncoder.setBindGroup(0, uniformBindGroup);
-      renderPassEncoder.setVertexBuffer(0, vertexBuffer);
-      renderPassEncoder.setIndexBuffer(indexBuffer, "uint16");
-      renderPassEncoder.drawIndexed(this.mesh?.indices.length!);
+
+      this.assets.forEach((asset, i) => {
+        renderPassEncoder.setPipeline(pipeline);
+        renderPassEncoder.setBindGroup(0, viewProjectionBindGroup);
+        renderPassEncoder.setBindGroup(1, asset.bindGroup!);
+
+        asset.mesh.model = asset.meshCallback(mat4.identity()) as Float32Array;
+        this.device!.queue.writeBuffer(asset.uniformBuffer!, 0, asset.mesh.model as Float32Array);
+
+        renderPassEncoder.setVertexBuffer(0, vertexBuffers[i]);
+        renderPassEncoder.setIndexBuffer(indexBuffers[i], "uint16");
+        renderPassEncoder.drawIndexed(asset.mesh.indices.length!);
+      })
+
       renderPassEncoder.end();
-      this.device.queue.submit([commandEncoder.finish()]);
+      this.device!.queue.submit([commandEncoder.finish()]);
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
