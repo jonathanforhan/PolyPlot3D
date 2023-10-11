@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@cortex-js/compute-engine": "^0.16.0",
-    "mathjs": "^11.11.1",
-    "mathlive": "^0.95.5"
+    "mathlive": "^0.95.5",
+    "wgpu-matrix": "^2.5.0"
   }
 }

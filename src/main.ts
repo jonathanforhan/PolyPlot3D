@@ -5,9 +5,13 @@ const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
 
 function setup() {
-  const resizeCanvas = () => [ canvas.width = window.innerWidth, canvas.height = window.innerHeight ];
-  window.addEventListener('load', resizeCanvas);
+  const pixelRatio = window.devicePixelRatio || 1;
+  const resizeCanvas = () => {
+    canvas.width = window.innerWidth * pixelRatio;
+    canvas.height = window.innerHeight * pixelRatio;
+  };
   window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
 }
 
 (async function main() {
