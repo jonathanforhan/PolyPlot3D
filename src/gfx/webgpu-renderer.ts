@@ -1,48 +1,48 @@
-import { Mesh } from "./mesh.ts";
+import { Mesh, Transform } from "./mesh.ts";
 import { Renderer } from "./renderer.ts";
-import { Mat4, mat4 } from "wgpu-matrix";
+import { mat4 } from "wgpu-matrix";
 
-interface MeshCallback {
-  (model: Mat4): Mat4 | undefined;
-}
-
-type Asset = {
-  mesh: Mesh,
-  meshCallback: MeshCallback,
+/* WebGPU specific data */
+interface MeshBufferData {
   bindGroup?: GPUBindGroup,
   uniformBuffer?: GPUBuffer,
 }
 
-/**
- * WebGPU Renderer
- *   PolyPlot uses WebGPU if has browser support, currently only supported in Chromium
- */
+/* WebGPU implementation of Renderer, PolyPlot uses WebGPU supported by browser */
 export class WebGPURenderer implements Renderer {
   public readonly canvas: HTMLCanvasElement;
   public readonly context: GPUCanvasContext;
   private device?: GPUDevice;
-  private shaderCode: string = "";
-  private assets: Asset[] = [];
+  private shaderCode?: string;
+  private assets: (Mesh & MeshBufferData)[] = [];
 
+  /* Fails if WebGPU not supported */
   public constructor(canvas: HTMLCanvasElement, context: GPUCanvasContext) {
+    if (!navigator.gpu) throw Error("WebGPU is not supported");
     this.canvas = canvas;
     this.context = context;
 
-    if (!navigator.gpu) throw Error("WebGPU is not supported");
+    this.canvas.width = canvas.clientWidth * devicePixelRatio;
+    this.canvas.height = canvas.clientHeight * devicePixelRatio;
   }
 
+  /* Implemented from Renderer Interface */
   public setShader(shaderCode: string) {
     this.shaderCode = shaderCode;
   }
 
-  public addMesh(mesh: Mesh, callback: MeshCallback) {
-    this.assets.push({
-      mesh,
-      meshCallback: callback,
-    })
+  /* Implemented from Renderer Interface */
+  public addMesh(mesh: Mesh, transform?: Transform) {
+    if (transform) mesh.transform = transform;
+    this.assets.push(mesh);
   }
 
-  public async draw(): Promise<void> {
+  /**
+   * Main render loop, handles resource creation
+   *
+   * @returns : NORETURN
+   */
+  public async render(): Promise<void> {
     if (!this.shaderCode) throw Error("No shader code set");
     if (!this.assets) throw Error("No assets to draw");
 
@@ -50,24 +50,16 @@ export class WebGPURenderer implements Renderer {
     if (!adapter) throw Error("Couldn't WebGPU adapter request not forfilled");
 
     this.device = await adapter.requestDevice();
-    const shaderModule = this.device.createShaderModule({ code: this.shaderCode });
-
     this.context.configure({
       device: this.device,
       format: navigator.gpu.getPreferredCanvasFormat(),
       alphaMode: "premultiplied",
     });
 
-    const vertexBuffers = this.assets.map(asset => (
-      this.createBuffer(asset.mesh.positions, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, true)
-    ));
-    const indexBuffers = this.assets.map(asset => (
-      this.createBuffer(asset.mesh.indices, GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, true)
-    ));
+    const vertexBuffers = this.assets.map(asset => this.createVertexBuffer(asset.positions));
+    const indexBuffers = this.assets.map(asset => this.createIndexBuffer(asset.indices));
 
-    const pipeline = this.createPipeline(shaderModule);
-
-    const depthTexture = this.device.createTexture({
+    let depthTexture = this.device.createTexture({
       size: [this.canvas.width, this.canvas.height],
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -90,36 +82,30 @@ export class WebGPURenderer implements Renderer {
       }
     };
 
-    let projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
-    let view = mat4.identity(); view[14] = -8; view[13] = -1;
+    const shaderModule = this.device.createShaderModule({ code: this.shaderCode });
+    const pipeline = this.createPipeline(shaderModule);
 
-    const uniformOpts = {
-      size: 16 * 4,
+    // one view projection uniform buffer that we write to at an offset
+    const viewProjectionUniformBuffer = this.device.createBuffer({
+      size: 16 * 4 * 2,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    };
-
-    const viewUniformBuffer = this.device.createBuffer(uniformOpts);
-    const projectionUniformBuffer = this.device.createBuffer(uniformOpts);
-
+    });
     const viewProjectionBindGroup = this.device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         {
           binding: 0,
-          resource: { buffer: viewUniformBuffer }
-        },
-        {
-          binding: 1,
-          resource: { buffer: projectionUniformBuffer }
+          resource: { buffer: viewProjectionUniformBuffer }
         }
       ]
     });
 
-    this.device!.queue.writeBuffer(projectionUniformBuffer, 0, projection as Float32Array);
-    this.device!.queue.writeBuffer(viewUniformBuffer, 0, view as Float32Array);
-
+    // create unique bindGroups for each Asset
     for (let asset of this.assets) {
-      asset.uniformBuffer = this.device.createBuffer(uniformOpts);
+      asset.uniformBuffer = this.device.createBuffer({
+        size: 16 * 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      });
       asset.bindGroup = this.device.createBindGroup({
         layout: pipeline.getBindGroupLayout(1),
         entries: [
@@ -131,7 +117,28 @@ export class WebGPURenderer implements Renderer {
       });
     }
 
+    this.device!.queue.writeBuffer(viewProjectionUniformBuffer, 0, this.getView());
+    this.device!.queue.writeBuffer(viewProjectionUniformBuffer, 16 * 4, this.getProjection());
+
     const frame = () => {
+      const [currWidth, currHeight] = [
+        this.canvas.clientWidth * devicePixelRatio,
+        this.canvas.clientHeight * devicePixelRatio
+      ];
+
+      if (currWidth !== this.canvas.width || currHeight !== this.canvas.height) {
+        depthTexture.destroy();
+
+        [this.canvas.width, this.canvas.height] = [currWidth, currHeight];
+        this.device!.queue.writeBuffer(viewProjectionUniformBuffer, 16 * 4, this.getProjection());
+
+        depthTexture = this.device!.createTexture({
+          size: [this.canvas.width, this.canvas.height],
+          format: 'depth24plus',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        renderPassDescriptor.depthStencilAttachment!.view = depthTexture.createView();
+      }
       (renderPassDescriptor.colorAttachments as any[])[0].view = this.context.getCurrentTexture().createView();
 
       const commandEncoder = this.device!.createCommandEncoder();
@@ -142,13 +149,13 @@ export class WebGPURenderer implements Renderer {
         renderPassEncoder.setBindGroup(0, viewProjectionBindGroup);
         renderPassEncoder.setBindGroup(1, asset.bindGroup!);
 
-        asset.mesh.model = asset.meshCallback(mat4.identity()) as Float32Array;
-        this.device!.queue.writeBuffer(asset.uniformBuffer!, 0, asset.mesh.model as Float32Array);
+        if (asset.transform) asset.model = asset.transform(mat4.identity());
+        this.device!.queue.writeBuffer(asset.uniformBuffer!, 0, asset.model as Float32Array);
 
         renderPassEncoder.setVertexBuffer(0, vertexBuffers[i]);
         renderPassEncoder.setIndexBuffer(indexBuffers[i], "uint16");
-        renderPassEncoder.drawIndexed(asset.mesh.indices.length!);
-      })
+        renderPassEncoder.drawIndexed(asset.indices.length!);
+      });
 
       renderPassEncoder.end();
       this.device!.queue.submit([commandEncoder.finish()]);
@@ -157,24 +164,26 @@ export class WebGPURenderer implements Renderer {
     requestAnimationFrame(frame);
   }
 
-  private createBuffer<T extends Float32Array | Uint16Array>(buffer: T, usage: number, mapped: boolean): GPUBuffer {
-    const gpuBuffer = this.device!.createBuffer({
-      size: buffer.byteLength,
-      usage,
-      mappedAtCreation: mapped,
+  private createVertexBuffer(vertices: Float32Array) {
+    const buffer = this.device!.createBuffer({
+      size: vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
     });
+    new Float32Array(buffer.getMappedRange()).set(vertices);
+    buffer.unmap();
+    return buffer;
+  }
 
-    if (mapped) {
-      if (buffer instanceof Float32Array) {
-        new Float32Array(gpuBuffer.getMappedRange()).set(buffer);
-      } else if (buffer instanceof Uint16Array) {
-        new Uint16Array(gpuBuffer.getMappedRange()).set(buffer);
-      }
-      gpuBuffer.unmap();
-      this.device!.queue.writeBuffer(gpuBuffer, 0, buffer);
-    }
-
-    return gpuBuffer;
+  private createIndexBuffer(indices: Uint16Array) {
+    const buffer = this.device!.createBuffer({
+      size: indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    new Uint16Array(buffer.getMappedRange()).set(indices);
+    buffer.unmap();
+    return buffer;
   }
 
   /* creates pipeline, is shader dependant, make sure formats match */
@@ -186,11 +195,7 @@ export class WebGPURenderer implements Renderer {
         buffers: [
           {
             attributes: [
-              { // position
-                shaderLocation: 0,
-                offset: 0,
-                format: "float32x3",
-              },
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
             ],
             arrayStride: 4 * 3,
             stepMode: "vertex",
@@ -200,11 +205,7 @@ export class WebGPURenderer implements Renderer {
       fragment: {
         module: shaderModule,
         entryPoint: "fragment_main",
-        targets: [
-          {
-            format: navigator.gpu.getPreferredCanvasFormat(),
-          },
-        ],
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
       },
       primitive: {
         topology: "triangle-list",
@@ -217,6 +218,16 @@ export class WebGPURenderer implements Renderer {
       },
       layout: "auto",
     });
+  }
+
+  private getProjection(): Float32Array {
+    let projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
+    return projection  as Float32Array;
+  }
+
+  private getView(): Float32Array {
+    let view = mat4.identity(); view[14] = -8;
+    return view as Float32Array;
   }
 }
 

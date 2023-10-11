@@ -1,27 +1,43 @@
 import { Mat4, mat4 } from "wgpu-matrix";
 
+export enum ImportType {
+  OBJ,
+}
+
+export type Transform = (m: Mat4) => Mat4;
+
+/* Layout of mesh data */
 export interface Mesh {
   positions: Float32Array;
   uvs: Float32Array;
   normals: Float32Array;
   indices: Uint16Array;
   model: Mat4;
+  transform?: Transform;
 }
 
+/* Mesh utility class for importing and other functions */
 export class Mesh {
-  public static async import(filePath: string): Promise<Mesh> {
+  public static async import(filePath: string, importType: ImportType) :Promise<Mesh> {
+    switch (importType) {
+    case ImportType.OBJ:
+      return Mesh.importOBJ(filePath);
+    }
+  }
+
+  private static async importOBJ(filePath: string): Promise<Mesh> {
     const res = await fetch(filePath);
     if (!res.ok) {
       throw Error(`import ${filePath} failed`);
     }
     const file = await res.text();
-
     const lines = file.split('\n');
 
-    const cachedPositions: number[][] = [];
-    const cachedFaces: string[][] = [];
-    const cachedNormals: number[][] = [];
-    const cachedUvs: number[][] = [];
+    type CacheArray<T> = T[][];
+    const cachedPositions: CacheArray<number> = [];
+    const cachedFaces: CacheArray<string> = [];
+    const cachedNormals: CacheArray<number> = [];
+    const cachedUvs: CacheArray<number> = [];
 
     // save to cache buckets
     for (let line of lines) {
@@ -48,10 +64,9 @@ export class Mesh {
     const uvs: number[] = [];
     const normals: number[] = [];
     const indices: number[] = [];
-
-    // get final result
     const cache: Record<string, number> = {};
 
+    // get final result
     let i = 0;
     for (const faces of cachedFaces) {
       for (const faceString of faces) {
@@ -60,13 +75,12 @@ export class Mesh {
         } else {
           cache[faceString] = i;
           indices.push(i);
+          i++;
 
           const [vI, uvI, nI] = faceString.split('/').map(s => +s - 1);
-
           vI > -1 && positions.push(...cachedPositions[vI]);
           uvI > -1 && uvs.push(...cachedUvs[uvI]);
           nI > -1 && normals.push(...cachedNormals[nI]);
-          i++;
         }
       }
     }
