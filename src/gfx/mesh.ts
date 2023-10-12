@@ -18,20 +18,28 @@ export interface Mesh {
 
 /* Mesh utility class for importing and other functions */
 export class Mesh {
-  public static async import(filePath: string, importType: ImportType) :Promise<Mesh> {
-    switch (importType) {
-    case ImportType.OBJ:
-      return Mesh.importOBJ(filePath);
-    }
-  }
-
-  private static async importOBJ(filePath: string): Promise<Mesh> {
+  public static async import(filePath: string, importType: ImportType): Promise<Mesh> {
     const res = await fetch(filePath);
     if (!res.ok) {
       throw Error(`import ${filePath} failed`);
     }
     const file = await res.text();
-    const lines = file.split('\n');
+
+    switch (importType) {
+    case ImportType.OBJ:
+      return Mesh.importOBJ(file);
+    }
+  }
+
+  public static async importFromString(string: string, importType: ImportType): Promise<Mesh> {
+    switch (importType) {
+    case ImportType.OBJ:
+      return Mesh.importOBJ(string);
+    }
+  }
+
+  private static async importOBJ(bytes: string): Promise<Mesh> {
+    const lines = bytes.split('\n');
 
     type CacheArray<T> = T[][];
     const cachedPositions: CacheArray<number> = [];
