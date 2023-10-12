@@ -59,13 +59,13 @@ export class Camera {
     if (this.pitch > 90) this.pitch = 90;
     if (this.pitch < -90) this.pitch = -90;
 
-    let front = vec3.fromValues(
+    this.front = vec3.fromValues(
       Math.cos(degToRad(this.yaw)) * Math.cos(degToRad(this.pitch)),
       Math.sin(degToRad(this.pitch)),
       Math.sin(degToRad(this.yaw)) * Math.cos(degToRad(this.pitch)),
     )
 
-    vec3.normalize(front, this.front);
+    vec3.normalize(this.front, this.front);
   }
 
   public apply(view: Mat4) {

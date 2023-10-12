@@ -26,14 +26,14 @@ function setup() {
     renderer?.setShader(defaultShader);
 
     renderer?.addMesh(bunny1, (model) => {
-      model = mat4.translate(model, vec3.fromValues(-4, 0, 0));
-      model = mat4.rotateY(model, 4 * Date.now() / 1000);
+      mat4.translate(model, vec3.fromValues(-4, 0, 0), model);
+      mat4.rotateY(model, 4 * Date.now() / 1000, model);
       return model;
     })
 
     renderer?.addMesh(bunny2, (model) => {
-      model = mat4.translate(model, vec3.fromValues(4, 0, 0));
-      model = mat4.rotateY(model, -4 * Date.now() / 1000);
+      mat4.translate(model, vec3.fromValues(4, 0, 0), model);
+      mat4.rotateY(model, -4 * Date.now() / 1000, model);
       return model;
     })
 
