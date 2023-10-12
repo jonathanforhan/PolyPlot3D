@@ -13,8 +13,8 @@ function setup() {
 (async function main() {
   setup();
 
-  const bunny1 = await Mesh.import("/assets/bunny/bunny.obj", ImportType.OBJ);
-  const bunny2 = await Mesh.import("/assets/bunny/bunny.obj", ImportType.OBJ);
+  const bunny1 = await Mesh.import("./assets/bunny/bunny.obj", ImportType.OBJ);
+  const bunny2 = await Mesh.import("./assets/bunny/bunny.obj", ImportType.OBJ);
 
   try {
     let renderer = context instanceof GPUCanvasContext
