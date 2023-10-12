@@ -1,6 +1,8 @@
+import { InputHandler } from "../events/input-handler.ts";
+import { Camera } from "./camera.ts";
 import { Mesh, Transform } from "./mesh.ts";
 import { Renderer } from "./renderer.ts";
-import { mat4 } from "wgpu-matrix";
+import { Mat4, mat4 } from "wgpu-matrix";
 
 /* WebGPU specific data */
 interface MeshBufferData {
@@ -12,18 +14,34 @@ interface MeshBufferData {
 export class WebGPURenderer implements Renderer {
   public readonly canvas: HTMLCanvasElement;
   public readonly context: GPUCanvasContext;
+  public readonly camera: Camera;
   private device?: GPUDevice;
+  private pipeline?: GPURenderPipeline;
   private shaderCode?: string;
   private assets: (Mesh & MeshBufferData)[] = [];
+  private view: Mat4;
+  private projection: Mat4;
+  private viewProjectionUniform?: { buffer: GPUBuffer, bindGroup: GPUBindGroup };
+  private inputHandler: InputHandler;
 
   /* Fails if WebGPU not supported */
   public constructor(canvas: HTMLCanvasElement, context: GPUCanvasContext) {
     if (!navigator.gpu) throw Error("WebGPU is not supported");
     this.canvas = canvas;
     this.context = context;
+    this.camera = new Camera;
 
     this.canvas.width = canvas.clientWidth * devicePixelRatio;
     this.canvas.height = canvas.clientHeight * devicePixelRatio;
+
+    this.canvas.addEventListener('click', async () => {
+      this.canvas.requestPointerLock();
+    })
+
+    this.view = mat4.identity();
+    this.view[14] = -8;
+    this.projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
+    this.inputHandler = new InputHandler();
   }
 
   /* Implemented from Renderer Interface */
@@ -39,8 +57,6 @@ export class WebGPURenderer implements Renderer {
 
   /**
    * Main render loop, handles resource creation
-   *
-   * @returns : NORETURN
    */
   public async render(): Promise<void> {
     if (!this.shaderCode) throw Error("No shader code set");
@@ -83,44 +99,27 @@ export class WebGPURenderer implements Renderer {
     };
 
     const shaderModule = this.device.createShaderModule({ code: this.shaderCode });
-    const pipeline = this.createPipeline(shaderModule);
+    this.createPipeline(shaderModule);
 
-    // one view projection uniform buffer that we write to at an offset
-    const viewProjectionUniformBuffer = this.device.createBuffer({
-      size: 16 * 4 * 2,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const viewProjectionBindGroup = this.device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        {
-          binding: 0,
-          resource: { buffer: viewProjectionUniformBuffer }
-        }
-      ]
-    });
+    // create one uniform for view projection
+    this.viewProjectionUniform = this.createUniform(16 * 4 * 2, 0, 0);
 
     // create unique bindGroups for each Asset
     for (let asset of this.assets) {
-      asset.uniformBuffer = this.device.createBuffer({
-        size: 16 * 4,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      asset.bindGroup = this.device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(1),
-        entries: [
-          {
-            binding: 0,
-            resource: { buffer: asset.uniformBuffer }
-          }
-        ],
-      });
+      ({ buffer: asset.uniformBuffer, bindGroup: asset.bindGroup } = this.createUniform(16 * 4, 1, 0));
     }
 
-    this.device!.queue.writeBuffer(viewProjectionUniformBuffer, 0, this.getView());
-    this.device!.queue.writeBuffer(viewProjectionUniformBuffer, 16 * 4, this.getProjection());
+    this.device!.queue.writeBuffer(this.viewProjectionUniform.buffer, 0, this.view as Float32Array);
+    this.device!.queue.writeBuffer(this.viewProjectionUniform.buffer, 16 * 4, this.projection as Float32Array);
+
+    this.setupKeyBindings();
+    let then = 0;
 
     const frame = () => {
+      let now = Date.now() / 1000;
+      let dt = now - then;
+      then = now;
+
       const [currWidth, currHeight] = [
         this.canvas.clientWidth * devicePixelRatio,
         this.canvas.clientHeight * devicePixelRatio
@@ -130,7 +129,7 @@ export class WebGPURenderer implements Renderer {
         depthTexture.destroy();
 
         [this.canvas.width, this.canvas.height] = [currWidth, currHeight];
-        this.device!.queue.writeBuffer(viewProjectionUniformBuffer, 16 * 4, this.getProjection());
+        this.updateProjection();
 
         depthTexture = this.device!.createTexture({
           size: [this.canvas.width, this.canvas.height],
@@ -144,9 +143,15 @@ export class WebGPURenderer implements Renderer {
       const commandEncoder = this.device!.createCommandEncoder();
       const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
+      this.inputHandler.loopCallbacks(dt);
+      this.camera.apply(this.view);
+
+      this.device!.queue.writeBuffer(this.viewProjectionUniform!.buffer, 0, this.view as Float32Array);
+      this.device!.queue.writeBuffer(this.viewProjectionUniform!.buffer, 16 * 4, this.projection as Float32Array);
+
       this.assets.forEach((asset, i) => {
-        renderPassEncoder.setPipeline(pipeline);
-        renderPassEncoder.setBindGroup(0, viewProjectionBindGroup);
+        renderPassEncoder.setPipeline(this.pipeline!);
+        renderPassEncoder.setBindGroup(0, this.viewProjectionUniform!.bindGroup);
         renderPassEncoder.setBindGroup(1, asset.bindGroup!);
 
         if (asset.transform) asset.model = asset.transform(mat4.identity());
@@ -159,13 +164,17 @@ export class WebGPURenderer implements Renderer {
 
       renderPassEncoder.end();
       this.device!.queue.submit([commandEncoder.finish()]);
+
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
   }
 
   private createVertexBuffer(vertices: Float32Array) {
-    const buffer = this.device!.createBuffer({
+    if (!this.device) {
+      throw new Error("Buffer creatation error, missing device");
+    }
+    const buffer = this.device.createBuffer({
       size: vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true,
@@ -176,7 +185,10 @@ export class WebGPURenderer implements Renderer {
   }
 
   private createIndexBuffer(indices: Uint16Array) {
-    const buffer = this.device!.createBuffer({
+    if (!this.device) {
+      throw new Error("Buffer creatation error, missing device");
+    }
+    const buffer = this.device.createBuffer({
       size: indices.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true,
@@ -187,8 +199,11 @@ export class WebGPURenderer implements Renderer {
   }
 
   /* creates pipeline, is shader dependant, make sure formats match */
-  private createPipeline(shaderModule: GPUShaderModule): GPURenderPipeline {
-    return this.device!.createRenderPipeline({
+  private createPipeline(shaderModule: GPUShaderModule) {
+    if (!this.device) {
+      throw new Error("Pipeline creatation error, missing device");
+    }
+    this.pipeline = this.device.createRenderPipeline({
       vertex: {
         module: shaderModule,
         entryPoint: "vertex_main",
@@ -220,14 +235,51 @@ export class WebGPURenderer implements Renderer {
     });
   }
 
-  private getProjection(): Float32Array {
-    let projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
-    return projection  as Float32Array;
+  private createUniform(
+    size: number,
+    group: number,
+    binding: number
+  ): {
+    buffer: GPUBuffer,
+    bindGroup: GPUBindGroup
+  } {
+    if (!this.device || !this.pipeline) {
+      throw new Error("Uniform creatation error, missing device or pipeline");
+    }
+
+    const buffer = this.device.createBuffer({
+      size,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const bindGroup = this.device.createBindGroup({
+      layout: this.pipeline.getBindGroupLayout(group),
+      entries: [
+        {
+          binding,
+          resource: { buffer }
+        }
+      ]
+    });
+
+    return { buffer, bindGroup };
   }
 
-  private getView(): Float32Array {
-    let view = mat4.identity(); view[14] = -8;
-    return view as Float32Array;
+  private updateProjection() {
+    this.projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
+  }
+
+  private setupKeyBindings() {
+    const s = 10; // sensivity
+    this.inputHandler.bindKey({ key: 'w', callback: (dt) => this.camera.translateForward(dt * s) });
+    this.inputHandler.bindKey({ key: 'a', callback: (dt) => this.camera.translateLeft(dt * s) });
+    this.inputHandler.bindKey({ key: 's', callback: (dt) => this.camera.translateBackward(dt * s) });
+    this.inputHandler.bindKey({ key: 'd', callback: (dt) => this.camera.translateRight(dt * s) });
+    this.inputHandler.bindKey({ key: 'q', callback: (dt) => this.camera.translateUp(dt * s) });
+    this.inputHandler.bindKey({ key: 'e', callback: (dt) => this.camera.translateDown(dt * s) });
+
+    this.inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
+
+    this.inputHandler.apply();
   }
 }
 
