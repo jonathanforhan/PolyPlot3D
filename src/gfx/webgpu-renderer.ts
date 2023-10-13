@@ -34,9 +34,7 @@ export class WebGPURenderer implements Renderer {
     this.canvas.width = canvas.clientWidth * devicePixelRatio;
     this.canvas.height = canvas.clientHeight * devicePixelRatio;
 
-    this.canvas.addEventListener('click', async () => {
-      this.canvas.requestPointerLock();
-    })
+    this.canvas.addEventListener('click', async () => this.canvas.requestPointerLock());
 
     this.view = mat4.identity();
     this.view[14] = -8;
