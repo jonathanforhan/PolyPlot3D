@@ -25,28 +25,36 @@ export class Camera {
     this.translateBackward(10);
   }
 
-  public translateForward(speed: number) {
-    vec3.addScaled(this.position, this.front, speed, this.position);
+  public translateForward(s: number) {
+    let front = vec3.fromValues(this.front[0], 0, this.front[2]);
+    vec3.normalize(front, front);
+    vec3.addScaled(this.position, front, s, this.position);
   }
 
-  public translateBackward(speed: number) {
-    vec3.subtract(this.position, vec3.scale(this.front, speed), this.position);
+  public translateBackward(s: number) {
+    let front = vec3.fromValues(this.front[0], 0, this.front[2]);
+    vec3.normalize(front, front);
+    vec3.addScaled(this.position, front, -s, this.position);
   }
 
-  public translateRight(speed: number) {
-    vec3.addScaled(this.position, vec3.normalize(vec3.cross(this.front, this.up)), speed, this.position);
+  public translateRight(s: number) {
+    let right = vec3.cross(this.front, this.up);
+    vec3.normalize(right, right);
+    vec3.addScaled(this.position, right, s, this.position);
   }
 
-  public translateLeft(speed: number) {
-    vec3.subtract(this.position, vec3.scale(vec3.normalize(vec3.cross(this.front, this.up)), speed), this.position);
+  public translateLeft(s: number) {
+    let left = vec3.cross(this.front, this.up);
+    vec3.normalize(left, left);
+    vec3.addScaled(this.position, left, -s, this.position);
   }
 
-  public translateUp(speed: number) {
-    vec3.addScaled(this.position, this.up, speed, this.position);
+  public translateUp(s: number) {
+    vec3.addScaled(this.position, this.up, s, this.position);
   }
 
-  public translateDown(speed: number) {
-    vec3.subtract(this.position, vec3.scale(this.up, speed), this.position);
+  public translateDown(s: number) {
+    vec3.addScaled(this.position, this.up, -s, this.position);
   }
 
   /* NOTE takes in Delta X and Delta Y */
@@ -58,16 +66,14 @@ export class Camera {
     this.yaw += dx;
     this.pitch += dy;
 
-    if (this.pitch > 90) this.pitch = 90;
-    if (this.pitch < -90) this.pitch = -90;
+    this.pitch = Math.max(-89, Math.min(this.pitch, 89));
 
-    this.front = vec3.fromValues(
-      Math.cos(degToRad(this.yaw)) * Math.cos(degToRad(this.pitch)),
-      Math.sin(degToRad(this.pitch)),
-      Math.sin(degToRad(this.yaw)) * Math.cos(degToRad(this.pitch)),
-    )
-
-    vec3.normalize(this.front, this.front);
+    vec3.normalize(
+      vec3.fromValues(
+        Math.cos(degToRad(this.yaw)) * Math.cos(degToRad(this.pitch)),
+        Math.sin(degToRad(this.pitch)),
+        Math.sin(degToRad(this.yaw)) * Math.cos(degToRad(this.pitch)),
+      ), this.front);
   }
 
   public apply(view: Mat4) {

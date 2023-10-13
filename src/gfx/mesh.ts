@@ -18,23 +18,17 @@ export interface Mesh {
 
 /* Mesh utility class for importing and other functions */
 export class Mesh {
-  public static async import(filePath: string, importType: ImportType): Promise<Mesh> {
-    const res = await fetch(filePath);
+  public static async import(asset: string, importType: ImportType): Promise<Mesh> {
+    // const res = await fetch(`https://poly-plot-3d.netlify.app/.netlify/functions/import?asset=${asset}`);
+    const res = await fetch(`http://localhost:9999/.netlify/functions/import?asset=${asset}`);
     if (!res.ok) {
-      throw Error(`import ${filePath} failed`);
+      throw Error(`import ${asset} failed`);
     }
-    const file = await res.text();
+    const file = await res.json();
 
     switch (importType) {
     case ImportType.OBJ:
-      return Mesh.importOBJ(file);
-    }
-  }
-
-  public static async importFromString(string: string, importType: ImportType): Promise<Mesh> {
-    switch (importType) {
-    case ImportType.OBJ:
-      return Mesh.importOBJ(string);
+      return Mesh.importOBJ(file.obj);
     }
   }
 

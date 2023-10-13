@@ -1,0 +1,19 @@
+{
+	"geolocation": {
+		"data": {
+			"city": "Derry",
+			"country": {
+				"code": "US",
+				"name": "United States"
+			},
+			"subdivision": {
+				"code": "NH",
+				"name": "New Hampshire"
+			},
+			"timezone": "America/New_York",
+			"latitude": 42.8859,
+			"longitude": -71.299
+		},
+		"timestamp": 1697167231296
+	}
+}

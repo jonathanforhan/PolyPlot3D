@@ -1,6 +1,5 @@
 import './style.css'
 import defaultShader from "../shaders/default.wgsl?raw";
-import bunny from "../assets/bunny/bunny.obj?raw";
 import { WebGPURenderer } from './gfx/webgpu-renderer'
 import { ImportType, Mesh } from './gfx/mesh';
 import { mat4, vec3 } from 'wgpu-matrix';
@@ -8,16 +7,11 @@ import { mat4, vec3 } from 'wgpu-matrix';
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
 
-function setup() {
-}
-
 (async function main() {
-  setup();
-
-  // const bunny1 = await Mesh.import("./assets/bunny/bunny.obj", ImportType.OBJ);
-  // const bunny2 = await Mesh.import("./assets/bunny/bunny.obj", ImportType.OBJ);
-  const bunny1 = await Mesh.importFromString(bunny, ImportType.OBJ);
-  const bunny2 = await Mesh.importFromString(bunny, ImportType.OBJ);
+  new URLSearchParams(window.location.href).forEach((k, v) => console.log(k, v));
+  const asset = "bunny"
+  const bunny1 = await Mesh.import(asset, ImportType.OBJ);
+  const bunny2 = await Mesh.import(asset, ImportType.OBJ);
 
   try {
     let renderer = context instanceof GPUCanvasContext
