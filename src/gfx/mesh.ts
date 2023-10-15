@@ -42,7 +42,7 @@ export class Mesh {
   }
 
   public static async import(asset: string, importType: ImportType): Promise<Mesh> {
-    const server = `http://85.31.224.15:80`;
+    const server = `https://jfraspi.us:443`;
     const res = await fetch(`${server}/import?asset=${asset}&ft=${importType}`);
     if (!res.ok) {
       throw Error(`import ${asset} failed`);
