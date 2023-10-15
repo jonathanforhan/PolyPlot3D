@@ -1,8 +1,0 @@
-[[redirects]]
-from = "/import"
-to = "/.netlify/functions/import"
-status = 200
-force = false
-
-[functions."import"]
-included_files = ["assets/**/**"]

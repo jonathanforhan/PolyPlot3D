@@ -8,10 +8,9 @@ const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
 
 (async function main() {
-  new URLSearchParams(window.location.href).forEach((k, v) => console.log(k, v));
   const asset = "bunny"
   const bunny1 = await Mesh.import(asset, ImportType.OBJ);
-  const bunny2 = await Mesh.import(asset, ImportType.OBJ);
+  const bunny2 = bunny1.duplicate();
 
   try {
     let renderer = context instanceof GPUCanvasContext

@@ -1,34 +1,57 @@
 import { Mat4, mat4 } from "wgpu-matrix";
 
 export enum ImportType {
-  OBJ,
+  OBJ = "obj",
 }
 
 export type Transform = (m: Mat4) => Mat4;
 
-/* Layout of mesh data */
-export interface Mesh {
+/* Mesh utility class for importing and other functions */
+export class Mesh {
   positions: Float32Array;
   uvs: Float32Array;
   normals: Float32Array;
   indices: Uint16Array;
   model: Mat4;
   transform?: Transform;
-}
 
-/* Mesh utility class for importing and other functions */
-export class Mesh {
+  constructor(
+    positions: Float32Array = new Float32Array(),
+    uvs: Float32Array = new Float32Array(),
+    normals: Float32Array = new Float32Array(),
+    indices: Uint16Array = new Uint16Array(),
+    model: Mat4 = mat4.identity(),
+    transform?: Transform,
+  ) {
+    this.positions = positions;
+    this.uvs = uvs;
+    this.normals = normals;
+    this.indices = indices;
+    this.model = model;
+    this.transform = transform;
+  }
+
+  public duplicate(): Mesh {
+    return new Mesh(
+      this.positions.copyWithin(-1, -1),
+      this.uvs.copyWithin(-1, -1),
+      this.normals.copyWithin(-1, -1),
+      this.indices.copyWithin(-1, -1),
+      this.model.copyWithin(-1, -1)
+    );
+  }
+
   public static async import(asset: string, importType: ImportType): Promise<Mesh> {
-    // const res = await fetch(`https://poly-plot-3d.netlify.app/.netlify/functions/import?asset=${asset}`);
-    const res = await fetch(`http://localhost:9999/.netlify/functions/import?asset=${asset}`);
+    const server = `http://85.31.224.15:80`;
+    const res = await fetch(`${server}/import?asset=${asset}&ft=${importType}`);
     if (!res.ok) {
       throw Error(`import ${asset} failed`);
     }
-    const file = await res.json();
+    const file = await res.text();
 
     switch (importType) {
-    case ImportType.OBJ:
-      return Mesh.importOBJ(file.obj);
+      case ImportType.OBJ:
+        return Mesh.importOBJ(file);
     }
   }
 
@@ -47,18 +70,18 @@ export class Mesh {
       const [start, ...data] = line.split(' ');
 
       switch (start) {
-      case 'v':
-        cachedPositions.push(data.map(parseFloat));
-        break;
-      case 'vt':
-        cachedUvs.push(data.map(Number));
-        break;
-      case 'vn':
-        cachedNormals.push(data.map(parseFloat));
-        break;
-      case 'f':
-        cachedFaces.push(data);
-        break;
+        case 'v':
+          cachedPositions.push(data.map(parseFloat));
+          break;
+        case 'vt':
+          cachedUvs.push(data.map(Number));
+          break;
+        case 'vn':
+          cachedNormals.push(data.map(parseFloat));
+          break;
+        case 'f':
+          cachedFaces.push(data);
+          break;
       }
     }
 
@@ -87,13 +110,12 @@ export class Mesh {
       }
     }
 
-    return {
-      positions: new Float32Array(positions),
-      uvs: new Float32Array(uvs),
-      normals: new Float32Array(normals),
-      indices: new Uint16Array(indices),
-      model: mat4.identity(),
-    };
+    return new Mesh(
+      new Float32Array(positions),
+      new Float32Array(uvs),
+      new Float32Array(normals),
+      new Uint16Array(indices),
+    );
   }
 }
 
