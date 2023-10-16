@@ -59,7 +59,7 @@ const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
     });
     renderer?.addMesh(bunny4, model => {
       let theta = (Date.now() / 4000) % (2 * Math.PI);
-      mat4.translate(model, vec3.fromValues(Math.cos(theta + 3 * Math.PI / 2) * 10, Math.sin(theta + 3 * Math.PI / 2, 0) * 10), model)
+      mat4.translate(model, vec3.fromValues(Math.cos(theta + 3 * Math.PI / 2) * 10, Math.sin(theta + 3 * Math.PI / 2) * 10, 0), model);
       return mat4.rotateY(model, theta * 2, model)
     });
 
