@@ -4,7 +4,12 @@ export enum ImportType {
   OBJ = "obj",
 }
 
-export type Transform = (m: Mat4) => Mat4;
+export type Transform = (m: Mat4, dt: number) => Mat4;
+
+export type MeshOptions = {
+  shaderCode?: string,
+  primitiveState?: GPUPrimitiveState
+}
 
 /* Mesh utility class for importing and other functions */
 export class Mesh {
@@ -14,6 +19,7 @@ export class Mesh {
   indices: Uint16Array;
   model: Mat4;
   transform?: Transform;
+  meshOptions?: MeshOptions;
 
   constructor(
     positions: Float32Array = new Float32Array(),
@@ -22,6 +28,7 @@ export class Mesh {
     indices: Uint16Array = new Uint16Array(),
     model: Mat4 = mat4.identity(),
     transform?: Transform,
+    meshOptions?: MeshOptions,
   ) {
     this.positions = positions;
     this.uvs = uvs;
@@ -29,6 +36,7 @@ export class Mesh {
     this.indices = indices;
     this.model = model;
     this.transform = transform;
+    this.meshOptions = meshOptions;
   }
 
   public duplicate(): Mesh {
@@ -37,7 +45,21 @@ export class Mesh {
       this.uvs.copyWithin(-1, -1),
       this.normals.copyWithin(-1, -1),
       this.indices.copyWithin(-1, -1),
-      this.model.copyWithin(-1, -1)
+      this.model.copyWithin(-1, -1),
+      this.transform,
+    );
+  }
+
+  public static importLine(): Mesh {
+    return new Mesh(
+      new Float32Array([ // positions
+        0, -0.5, 0,
+        0, 0.5, 0,
+      ]),
+      new Float32Array([]),     // uvs
+      new Float32Array([]),     // normals
+      new Uint16Array([0, 1]),  // indices
+      mat4.identity(),          // model
     );
   }
 

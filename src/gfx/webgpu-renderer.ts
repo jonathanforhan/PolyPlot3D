@@ -16,7 +16,7 @@ export class WebGPURenderer implements Renderer {
   public readonly context: GPUCanvasContext;
   public readonly camera: Camera;
   private device?: GPUDevice;
-  private pipeline?: GPURenderPipeline;
+  private defaultPipeline?: GPURenderPipeline;
   private shaderCode?: string;
   private assets: (Mesh & MeshBufferData)[] = [];
   private view: Mat4;
@@ -83,7 +83,7 @@ export class WebGPURenderer implements Renderer {
       colorAttachments: [
         {
           view: this.context.getCurrentTexture().createView(),
-          clearValue: { r: 0.0, g: 0.5, b: 1.0, a: 1.0 },
+          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
           loadOp: "clear",
           storeOp: "store",
         },
@@ -96,8 +96,8 @@ export class WebGPURenderer implements Renderer {
       }
     };
 
-    const shaderModule = this.device.createShaderModule({ code: this.shaderCode });
-    this.createPipeline(shaderModule);
+    const defaultShaderModule = this.device.createShaderModule({ code: this.shaderCode });
+    this.defaultPipeline = this.createPipeline(defaultShaderModule, { topology: "point-list", cullMode: "back" });
 
     // create one uniform for view projection
     this.viewProjectionUniform = this.createUniform(16 * 4 * 2, 0, 0);
@@ -111,12 +111,18 @@ export class WebGPURenderer implements Renderer {
     this.device!.queue.writeBuffer(this.viewProjectionUniform.buffer, 16 * 4, this.projection as Float32Array);
 
     this.setupKeyBindings();
-    let then = 0;
+
+    let then = Date.now() / 1000;
+    let dt = 0;
+    const fps = 45;
 
     const frame = () => {
       let now = Date.now() / 1000;
-      let dt = now - then;
+      dt += now - then;
       then = now;
+
+      // limit draws to fps
+      if (dt < 1 / fps) { return requestAnimationFrame(frame) }
 
       const [currWidth, currHeight] = [
         this.canvas.clientWidth * devicePixelRatio,
@@ -148,11 +154,22 @@ export class WebGPURenderer implements Renderer {
       this.device!.queue.writeBuffer(this.viewProjectionUniform!.buffer, 16 * 4, this.projection as Float32Array);
 
       this.assets.forEach((asset, i) => {
-        renderPassEncoder.setPipeline(this.pipeline!);
+        if (asset.meshOptions) {
+          // custom pipeline
+          const shaderModule = asset.meshOptions.shaderCode
+            ? this.device?.createShaderModule({ code: asset.meshOptions.shaderCode })!
+            : defaultShaderModule;
+          const primitiveState = asset.meshOptions.primitiveState || { topology: "triangle-list", cullMode: "back" };
+          const pipeline = this.createPipeline(shaderModule, primitiveState);
+          renderPassEncoder.setPipeline(pipeline);
+        } else {
+          // default pipeline
+          renderPassEncoder.setPipeline(this.defaultPipeline!);
+        }
         renderPassEncoder.setBindGroup(0, this.viewProjectionUniform!.bindGroup);
         renderPassEncoder.setBindGroup(1, asset.bindGroup!);
 
-        if (asset.transform) asset.model = asset.transform(mat4.identity());
+        if (asset.transform) asset.model = asset.transform(mat4.identity(), dt);
         this.device!.queue.writeBuffer(asset.uniformBuffer!, 0, asset.model as Float32Array);
 
         renderPassEncoder.setVertexBuffer(0, vertexBuffers[i]);
@@ -163,6 +180,7 @@ export class WebGPURenderer implements Renderer {
       renderPassEncoder.end();
       this.device!.queue.submit([commandEncoder.finish()]);
 
+      if (dt >= 1 / fps) { dt -= 1 / fps; }
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
@@ -187,7 +205,7 @@ export class WebGPURenderer implements Renderer {
       throw new Error("Buffer creatation error, missing device");
     }
     const buffer = this.device.createBuffer({
-      size: indices.byteLength,
+      size: indices.byteLength + indices.byteLength % 4,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true,
     });
@@ -197,11 +215,11 @@ export class WebGPURenderer implements Renderer {
   }
 
   /* creates pipeline, is shader dependant, make sure formats match */
-  private createPipeline(shaderModule: GPUShaderModule) {
+  private createPipeline(shaderModule: GPUShaderModule, primitiveState: GPUPrimitiveState): GPURenderPipeline {
     if (!this.device) {
       throw new Error("Pipeline creatation error, missing device");
     }
-    this.pipeline = this.device.createRenderPipeline({
+    return this.device.createRenderPipeline({
       vertex: {
         module: shaderModule,
         entryPoint: "vertex_main",
@@ -220,10 +238,7 @@ export class WebGPURenderer implements Renderer {
         entryPoint: "fragment_main",
         targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
       },
-      primitive: {
-        topology: "triangle-list",
-        cullMode: 'back',
-      },
+      primitive: primitiveState,
       depthStencil: {
         depthWriteEnabled: true,
         depthCompare: 'less',
@@ -241,7 +256,7 @@ export class WebGPURenderer implements Renderer {
     buffer: GPUBuffer,
     bindGroup: GPUBindGroup
   } {
-    if (!this.device || !this.pipeline) {
+    if (!this.device || !this.defaultPipeline) {
       throw new Error("Uniform creatation error, missing device or pipeline");
     }
 
@@ -250,7 +265,7 @@ export class WebGPURenderer implements Renderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(group),
+      layout: this.defaultPipeline.getBindGroupLayout(group),
       entries: [
         {
           binding,

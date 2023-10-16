@@ -8,11 +8,11 @@ struct ViewProjection {
   projection: mat4x4<f32>,
 }
 
-@binding(0) @group(1)
-var<uniform> model : mat4x4<f32>;
-
 @binding(0) @group(0)
 var<uniform> view_projection : ViewProjection;
+
+@binding(0) @group(1)
+var<uniform> model : mat4x4<f32>;
 
 @vertex
 fn vertex_main(@location(0) position: vec3<f32>) -> VertexOutput {
