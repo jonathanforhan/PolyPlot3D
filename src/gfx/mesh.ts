@@ -1,42 +1,24 @@
-import { Mat4, mat4 } from "wgpu-matrix";
-
 export enum ImportType {
   OBJ = "obj",
 }
 
-export type Transform = (m: Mat4, dt: number) => Mat4;
-
-export type MeshOptions = {
-  shaderCode?: string,
-  primitiveState?: GPUPrimitiveState
-}
-
 /* Mesh utility class for importing and other functions */
 export class Mesh {
-  positions: Float32Array;
-  uvs: Float32Array;
-  normals: Float32Array;
-  indices: Uint16Array;
-  model: Mat4;
-  transform?: Transform;
-  meshOptions?: MeshOptions;
+  readonly positions: Float32Array;
+  readonly uvs: Float32Array;
+  readonly normals: Float32Array;
+  readonly indices: Uint16Array;
 
-  constructor(
+  public constructor(
     positions: Float32Array = new Float32Array(),
     uvs: Float32Array = new Float32Array(),
     normals: Float32Array = new Float32Array(),
     indices: Uint16Array = new Uint16Array(),
-    model: Mat4 = mat4.identity(),
-    transform?: Transform,
-    meshOptions?: MeshOptions,
   ) {
     this.positions = positions;
     this.uvs = uvs;
     this.normals = normals;
     this.indices = indices;
-    this.model = model;
-    this.transform = transform;
-    this.meshOptions = meshOptions;
   }
 
   public duplicate(): Mesh {
@@ -45,21 +27,6 @@ export class Mesh {
       this.uvs.copyWithin(-1, -1),
       this.normals.copyWithin(-1, -1),
       this.indices.copyWithin(-1, -1),
-      this.model.copyWithin(-1, -1),
-      this.transform,
-    );
-  }
-
-  public static importLine(): Mesh {
-    return new Mesh(
-      new Float32Array([ // positions
-        0, -0.5, 0,
-        0, 0.5, 0,
-      ]),
-      new Float32Array([]),     // uvs
-      new Float32Array([]),     // normals
-      new Uint16Array([0, 1]),  // indices
-      mat4.identity(),          // model
     );
   }
 

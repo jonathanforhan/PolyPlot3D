@@ -1,78 +1,106 @@
-import { InputHandler } from "../events/input-handler.ts";
-import { Camera } from "./camera.ts";
-import { Mesh, Transform } from "./mesh.ts";
-import { Renderer } from "./renderer.ts";
+import { Actor } from "./actor.ts";
+import { ActorID, Renderer } from "./renderer.ts";
+import { v1 as uuid } from 'uuid';
+import { defaultVert } from "./shaders.ts";
+import { defaultFrag } from "./shaders.ts";
 import { Mat4, mat4 } from "wgpu-matrix";
+import { InputHandler } from "../events/input-handler.ts";
 
-/* WebGPU specific data */
-interface MeshBufferData {
-  bindGroup?: GPUBindGroup,
-  uniformBuffer?: GPUBuffer,
+type ActorImpl = {
+  vertexBuffer?: GPUBuffer;
+  indexBuffer?: GPUBuffer;
+  uniformBuffer?: GPUBuffer;
+  uniformBindGroup?: GPUBindGroup;
+  pipeline?: GPURenderPipeline;
 }
 
 /* WebGPU implementation of Renderer, PolyPlot uses WebGPU supported by browser */
-export class WebGPURenderer implements Renderer {
-  public readonly canvas: HTMLCanvasElement;
-  public readonly context: GPUCanvasContext;
-  public readonly camera: Camera;
-  private device?: GPUDevice;
-  private defaultPipeline?: GPURenderPipeline;
-  private shaderCode?: string;
-  private assets: (Mesh & MeshBufferData)[] = [];
-  private view: Mat4;
-  private projection: Mat4;
-  private viewProjectionUniform?: { buffer: GPUBuffer, bindGroup: GPUBindGroup };
-  private inputHandler: InputHandler;
+export class WebGPURenderer extends Renderer {
+  protected device: GPUDevice;
+  protected readonly actors: Record<ActorID, Actor & ActorImpl>;
 
-  /* Fails if WebGPU not supported */
-  public constructor(canvas: HTMLCanvasElement, context: GPUCanvasContext) {
-    if (!navigator.gpu) throw Error("WebGPU is not supported");
-    this.canvas = canvas;
-    this.context = context;
-    this.camera = new Camera;
-
-    this.canvas.width = canvas.clientWidth * devicePixelRatio;
-    this.canvas.height = canvas.clientHeight * devicePixelRatio;
-
-    this.canvas.addEventListener('click', async () => this.canvas.requestPointerLock());
-
-    this.view = mat4.identity();
-    this.view[14] = -8;
-    this.projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
-    this.inputHandler = new InputHandler();
-  }
-
-  /* Implemented from Renderer Interface */
-  public setShader(shaderCode: string) {
-    this.shaderCode = shaderCode;
-  }
-
-  /* Implemented from Renderer Interface */
-  public addMesh(mesh: Mesh, transform?: Transform) {
-    if (transform) mesh.transform = transform;
-    this.assets.push(mesh);
-  }
-
-  /**
-   * Main render loop, handles resource creation
-   */
-  public async render(): Promise<void> {
-    if (!this.shaderCode) throw Error("No shader code set");
-    if (!this.assets) throw Error("No assets to draw");
+  /* Async constructor */
+  public static async new(canvas: HTMLCanvasElement, context: GPUCanvasContext): Promise<WebGPURenderer> {
+    if (!navigator.gpu) throw "WebGPU is not supported";
 
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw Error("Couldn't WebGPU adapter request not forfilled");
+    const device = await adapter?.requestDevice();
+    if (!device) throw "WebGPU Request Device -> REJECTED";
 
-    this.device = await adapter.requestDevice();
-    this.context.configure({
-      device: this.device,
+    context.configure({
+      device: device,
       format: navigator.gpu.getPreferredCanvasFormat(),
       alphaMode: "premultiplied",
+    })
+
+    return new WebGPURenderer(canvas, context, device);
+  }
+
+  /* Private constructor to be used by new() */
+  private constructor(canvas: HTMLCanvasElement, context: GPUCanvasContext, device: GPUDevice) {
+    super(canvas, context);
+    this.device = device;
+    this.actors = {};
+  }
+
+  /* Adds actor to actor record via a uuid, add's shader to shader registry if needed */
+  public addActor<T extends Actor>(actor: T): ActorID {
+    this.shaderModules[actor.vertexShader.name] ??= this.device.createShaderModule({ code: actor.vertexShader.get() });
+    this.shaderModules[actor.fragmentShader.name] ??= this.device.createShaderModule({ code: actor.fragmentShader.get() });
+    const vertexBuffer = actor.mesh && this.mapBuffer(actor.mesh.positions, GPUBufferUsage.VERTEX);
+    const indexBuffer = actor.mesh && this.mapBuffer(actor.mesh.indices, GPUBufferUsage.INDEX);
+    const pipeline = this.device.createRenderPipeline({
+      vertex: {
+        module: this.shaderModules[actor.vertexShader.name] as GPUShaderModule,
+        entryPoint: "vertex_main",
+        buffers: [
+          {
+            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+            arrayStride: 4 * 3,
+            stepMode: "vertex",
+          }
+        ],
+      },
+      fragment: {
+        module: this.shaderModules[actor.fragmentShader.name] as GPUShaderModule,
+        entryPoint: "fragment_main",
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+      },
+      primitive: {
+        topology: actor.topology,
+        cullMode: 'back',
+      },
+      depthStencil: {
+        depthWriteEnabled: true,
+        depthCompare: 'less',
+        format: 'depth24plus',
+      },
+      layout: "auto",
     });
+    const { buffer, bindGroup } = this.createUniform(pipeline, 16 * 4, 1, 0);
 
-    const vertexBuffers = this.assets.map(asset => this.createVertexBuffer(asset.positions));
-    const indexBuffers = this.assets.map(asset => this.createIndexBuffer(asset.indices));
+    const id: ActorID = uuid();
+    this.actors[id] = {
+      ...actor,
+      vertexBuffer: vertexBuffer,
+      indexBuffer: indexBuffer,
+      uniformBuffer: buffer,
+      uniformBindGroup: bindGroup,
+      pipeline: pipeline
+    };
+    return id;
+  }
 
+  /* Removes an actor from actor record via a uuid */
+  public removeActor(id: string): void {
+    delete this.actors[id];
+  }
+
+  /* Main render loop, handles resource creation */
+  public async render(): Promise<void> {
+    const context = this.context as GPUCanvasContext;
+
+    // TODO NOT GOOD
     let depthTexture = this.device.createTexture({
       size: [this.canvas.width, this.canvas.height],
       format: 'depth24plus',
@@ -82,10 +110,10 @@ export class WebGPURenderer implements Renderer {
     const renderPassDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [
         {
-          view: this.context.getCurrentTexture().createView(),
-          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-          loadOp: "clear",
-          storeOp: "store",
+          view: context.getCurrentTexture().createView(),
+          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 0.1 },
+          loadOp: 'clear',
+          storeOp: 'store',
         },
       ],
       depthStencilAttachment: {
@@ -96,149 +124,27 @@ export class WebGPURenderer implements Renderer {
       }
     };
 
-    const defaultShaderModule = this.device.createShaderModule({ code: this.shaderCode });
-    this.defaultPipeline = this.createPipeline(defaultShaderModule, { topology: "point-list", cullMode: "back" });
-
-    // create one uniform for view projection
-    this.viewProjectionUniform = this.createUniform(16 * 4 * 2, 0, 0);
-
-    // create unique bindGroups for each Asset
-    for (let asset of this.assets) {
-      ({ buffer: asset.uniformBuffer, bindGroup: asset.bindGroup } = this.createUniform(16 * 4, 1, 0));
-    }
-
-    this.device!.queue.writeBuffer(this.viewProjectionUniform.buffer, 0, this.view as Float32Array);
-    this.device!.queue.writeBuffer(this.viewProjectionUniform.buffer, 16 * 4, this.projection as Float32Array);
-
-    this.setupKeyBindings();
-
-    let then = Date.now() / 1000;
-    let dt = 0;
-    const fps = 45;
-
-    const frame = () => {
-      let now = Date.now() / 1000;
-      dt += now - then;
-      then = now;
-
-      // limit draws to fps
-      if (dt < 1 / fps) { return requestAnimationFrame(frame) }
-
-      const [currWidth, currHeight] = [
-        this.canvas.clientWidth * devicePixelRatio,
-        this.canvas.clientHeight * devicePixelRatio
-      ];
-
-      if (currWidth !== this.canvas.width || currHeight !== this.canvas.height) {
-        depthTexture.destroy();
-
-        [this.canvas.width, this.canvas.height] = [currWidth, currHeight];
-        this.updateProjection();
-
-        depthTexture = this.device!.createTexture({
-          size: [this.canvas.width, this.canvas.height],
-          format: 'depth24plus',
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        });
-        renderPassDescriptor.depthStencilAttachment!.view = depthTexture.createView();
-      }
-      (renderPassDescriptor.colorAttachments as any[])[0].view = this.context.getCurrentTexture().createView();
-
-      const commandEncoder = this.device!.createCommandEncoder();
-      const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-
-      this.inputHandler.loopCallbacks(dt);
-      this.camera.apply(this.view);
-
-      this.device!.queue.writeBuffer(this.viewProjectionUniform!.buffer, 0, this.view as Float32Array);
-      this.device!.queue.writeBuffer(this.viewProjectionUniform!.buffer, 16 * 4, this.projection as Float32Array);
-
-      this.assets.forEach((asset, i) => {
-        if (asset.meshOptions) {
-          // custom pipeline
-          const shaderModule = asset.meshOptions.shaderCode
-            ? this.device?.createShaderModule({ code: asset.meshOptions.shaderCode })!
-            : defaultShaderModule;
-          const primitiveState = asset.meshOptions.primitiveState || { topology: "triangle-list", cullMode: "back" };
-          const pipeline = this.createPipeline(shaderModule, primitiveState);
-          renderPassEncoder.setPipeline(pipeline);
-        } else {
-          // default pipeline
-          renderPassEncoder.setPipeline(this.defaultPipeline!);
-        }
-        renderPassEncoder.setBindGroup(0, this.viewProjectionUniform!.bindGroup);
-        renderPassEncoder.setBindGroup(1, asset.bindGroup!);
-
-        if (asset.transform) asset.model = asset.transform(mat4.identity(), dt);
-        this.device!.queue.writeBuffer(asset.uniformBuffer!, 0, asset.model as Float32Array);
-
-        renderPassEncoder.setVertexBuffer(0, vertexBuffers[i]);
-        renderPassEncoder.setIndexBuffer(indexBuffers[i], "uint16");
-        renderPassEncoder.drawIndexed(asset.indices.length!);
-      });
-
-      renderPassEncoder.end();
-      this.device!.queue.submit([commandEncoder.finish()]);
-
-      if (dt >= 1 / fps) { dt -= 1 / fps; }
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  }
-
-  private createVertexBuffer(vertices: Float32Array) {
-    if (!this.device) {
-      throw new Error("Buffer creatation error, missing device");
-    }
-    const buffer = this.device.createBuffer({
-      size: vertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true,
-    });
-    new Float32Array(buffer.getMappedRange()).set(vertices);
-    buffer.unmap();
-    return buffer;
-  }
-
-  private createIndexBuffer(indices: Uint16Array) {
-    if (!this.device) {
-      throw new Error("Buffer creatation error, missing device");
-    }
-    const buffer = this.device.createBuffer({
-      size: indices.byteLength + indices.byteLength % 4,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true,
-    });
-    new Uint16Array(buffer.getMappedRange()).set(indices);
-    buffer.unmap();
-    return buffer;
-  }
-
-  /* creates pipeline, is shader dependant, make sure formats match */
-  private createPipeline(shaderModule: GPUShaderModule, primitiveState: GPUPrimitiveState): GPURenderPipeline {
-    if (!this.device) {
-      throw new Error("Pipeline creatation error, missing device");
-    }
-    return this.device.createRenderPipeline({
+    const viewProjectionPipeline = this.device.createRenderPipeline({
       vertex: {
-        module: shaderModule,
+        module: this.device.createShaderModule({ code: defaultVert.default }),
         entryPoint: "vertex_main",
         buffers: [
           {
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x3" },
-            ],
+            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
             arrayStride: 4 * 3,
             stepMode: "vertex",
           }
         ],
       },
       fragment: {
-        module: shaderModule,
+        module: this.device.createShaderModule({ code: defaultFrag.default }),
         entryPoint: "fragment_main",
         targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
       },
-      primitive: primitiveState,
+      primitive: {
+        topology: 'triangle-list',
+        cullMode: 'back',
+      },
       depthStencil: {
         depthWriteEnabled: true,
         depthCompare: 'less',
@@ -246,9 +152,97 @@ export class WebGPURenderer implements Renderer {
       },
       layout: "auto",
     });
+    const viewProjectionUniform = this.createUniform(viewProjectionPipeline, 16 * 4 * 2, 0, 0);
+
+    let view: Mat4 = mat4.identity();
+    view[14] = -10;
+
+    const getProjection = () => mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
+    let projection = getProjection();
+
+    this.device.queue.writeBuffer(viewProjectionUniform.buffer, 0, view as Float32Array);
+    this.device.queue.writeBuffer(viewProjectionUniform.buffer, 16 * 4, projection as Float32Array);
+
+    const inputHandler = new InputHandler();
+    const s = 10; // sensivity
+    inputHandler.bindKey({ key: 'w', callback: (dt) => this.camera.translateForward(dt * s) });
+    inputHandler.bindKey({ key: 'a', callback: (dt) => this.camera.translateLeft(dt * s) });
+    inputHandler.bindKey({ key: 's', callback: (dt) => this.camera.translateBackward(dt * s) });
+    inputHandler.bindKey({ key: 'd', callback: (dt) => this.camera.translateRight(dt * s) });
+    inputHandler.bindKey({ key: 'q', callback: (dt) => this.camera.translateUp(dt * s) });
+    inputHandler.bindKey({ key: 'e', callback: (dt) => this.camera.translateDown(dt * s) });
+    inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
+    inputHandler.apply();
+
+    const frame = () => {
+      const [currWidth, currHeight] = [
+        this.canvas.clientWidth * devicePixelRatio,
+        this.canvas.clientHeight * devicePixelRatio
+      ];
+
+      if (currWidth !== this.canvas.width || currHeight !== this.canvas.height) {
+        depthTexture.destroy();
+        [this.canvas.width, this.canvas.height] = [currWidth, currHeight];
+        projection = getProjection();
+        depthTexture = this.device!.createTexture({
+          size: [this.canvas.width,
+          this.canvas.height],
+          format: 'depth24plus',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT
+        });
+        renderPassDescriptor.depthStencilAttachment!.view = depthTexture.createView();
+      }
+      (renderPassDescriptor.colorAttachments as any[])[0].view = (<GPUCanvasContext>this.context).getCurrentTexture().createView();
+
+      const commandEncoder = this.device!.createCommandEncoder();
+      const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+
+      inputHandler.loopCallbacks(0);
+      this.camera.apply(view);
+
+      this.device.queue.writeBuffer(viewProjectionUniform.buffer, 0, view as Float32Array);
+      this.device.queue.writeBuffer(viewProjectionUniform.buffer, 16 * 4, projection as Float32Array);
+
+      Object.values(this.actors).forEach(actor => {
+        renderPassEncoder.setPipeline(actor.pipeline!);
+        renderPassEncoder.setBindGroup(0, viewProjectionUniform.bindGroup);
+        renderPassEncoder.setBindGroup(1, actor.uniformBindGroup!);
+
+        actor.modelMatrix = actor.transform(mat4.identity());
+        this.device.queue.writeBuffer(actor.uniformBuffer!, 0, actor.modelMatrix as Float32Array);
+
+        actor.vertexBuffer && renderPassEncoder.setVertexBuffer(0, actor.vertexBuffer);
+        actor.indexBuffer && renderPassEncoder.setIndexBuffer(actor.indexBuffer, 'uint16');
+        actor.mesh && renderPassEncoder.drawIndexed(actor.mesh.indices.length);
+      });
+
+      renderPassEncoder.end();
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
   }
 
+  /* Create a buffer from 'data' mapped to GPU memory, GPUBufferUsage.COPY_DST is implicitly added to usage */
+  private mapBuffer(data: Float32Array | Uint16Array, usage: number): GPUBuffer {
+    const buffer = this.device.createBuffer({
+      size: data.byteLength,
+      usage: usage | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+
+    data instanceof Float32Array
+      ? new Float32Array(buffer.getMappedRange()).set(data)
+      : new Uint16Array(buffer.getMappedRange()).set(data);
+
+    buffer.unmap();
+    return buffer;
+  }
+
+  /* Create a uniform buffer */
   private createUniform(
+    pipeline: GPURenderPipeline,
     size: number,
     group: number,
     binding: number
@@ -256,43 +250,21 @@ export class WebGPURenderer implements Renderer {
     buffer: GPUBuffer,
     bindGroup: GPUBindGroup
   } {
-    if (!this.device || !this.defaultPipeline) {
-      throw new Error("Uniform creatation error, missing device or pipeline");
-    }
-
     const buffer = this.device.createBuffer({
-      size,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: size,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     const bindGroup = this.device.createBindGroup({
-      layout: this.defaultPipeline.getBindGroupLayout(group),
+      layout: pipeline.getBindGroupLayout(group),
       entries: [
         {
-          binding,
-          resource: { buffer }
+          binding: binding,
+          resource: { buffer: buffer }
         }
       ]
     });
 
-    return { buffer, bindGroup };
-  }
-
-  private updateProjection() {
-    this.projection = mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
-  }
-
-  private setupKeyBindings() {
-    const s = 10; // sensivity
-    this.inputHandler.bindKey({ key: 'w', callback: (dt) => this.camera.translateForward(dt * s) });
-    this.inputHandler.bindKey({ key: 'a', callback: (dt) => this.camera.translateLeft(dt * s) });
-    this.inputHandler.bindKey({ key: 's', callback: (dt) => this.camera.translateBackward(dt * s) });
-    this.inputHandler.bindKey({ key: 'd', callback: (dt) => this.camera.translateRight(dt * s) });
-    this.inputHandler.bindKey({ key: 'q', callback: (dt) => this.camera.translateUp(dt * s) });
-    this.inputHandler.bindKey({ key: 'e', callback: (dt) => this.camera.translateDown(dt * s) });
-
-    this.inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
-
-    this.inputHandler.apply();
+    return { buffer, bindGroup }
   }
 }
 

@@ -23,7 +23,3 @@ fn vertex_main(@location(0) position: vec3<f32>) -> VertexOutput {
     return output;
 }
 
-@fragment
-fn fragment_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-    return color;
-}
