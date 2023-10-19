@@ -7,36 +7,29 @@ import { Mesh } from "../mesh";
 const createMesh = (range: { low: number, high: number }, fn: SurfaceFunction): Mesh => {
   let [vertices, indices] = [new Array, new Array];
   let [x, y] = [0, 0];
-  let nSqr = 0;
+  let s = 0.05; // scale
+  let m = 30; // mutator
+  let r = range.high - range.low;
 
   for (let i = range.low; i < range.high; i++) {
     for (let j = range.low; j < range.high; j++) {
-      // traverse in a grid and add two triangles per square
-      [x, y] = [(i) / 20, (j) / 20];
-      vertices.push(x, fn(x, y), y);
-      [x, y] = [(i + 1) / 20, (j) / 20];
-      vertices.push(x, fn(x, y), y);
-      [x, y] = [(i) / 20, (j + 1) / 20];
-      vertices.push(x, fn(x, y), y);
-      [x, y] = [(i + 1) / 20, (j + 1) / 20];
-      vertices.push(x, fn(x, y), y);
-
-      // draw them in correct order
-      let n = nSqr * 4;
-
-      // if not on bottom row
-      indices.push(
-        n + 0, n + 1, n + 2,
-        n + 1, n + 2, n + 3
-      );
-      nSqr++;
+      [x, y] = [(i) * s, (j) * s];
+      vertices.push(x * m, fn(x, y) * m, y * m);
     }
   }
 
-  vertices = vertices.map(x => x * 20);
+  for (let i = 0; i < r - 1; i++) {
+    for (let j = 0; j < r - 1; j++) {
+      indices.push(
+        // top left | bot left | bot right
+        i * r + j + 1, i * r + j, i * r + r + j,
+        // top left | top right | bot right
+        i * r + j + 1, i * r + r + j + 1, i * r + r + j,
+      );
+    }
+  }
 
-  console.log(vertices.length);
-  console.log(indices.length);
+  console.log(`Produced ${vertices.length} vertices, ${indices.length} indices`);
 
   return new Mesh(
     new Float32Array(vertices),

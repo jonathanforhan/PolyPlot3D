@@ -23,6 +23,8 @@ export class Camera {
     this.fov = 45;
     this.lookAround(0, 0);
     this.translateUp(50);
+    this.translateBackward(50);
+    this.translateLeft(50);
   }
 
   public translateForward(s: number) {

@@ -20,7 +20,7 @@ const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
         low: -50,
         high: 50
       },
-      fn: (x, y) => (7 * x * y) / (Math.pow(Math.E, (x * x + y * y)))
+      fn: (x, y) => (4 * x * y) / (Math.pow(Math.E, (x * x + y * y)))
     });
     renderer?.addActor(surface1);
     renderer?.addActor(surface1.newWire().actor);
