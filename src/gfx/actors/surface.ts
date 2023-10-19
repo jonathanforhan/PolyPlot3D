@@ -23,8 +23,8 @@ const createMesh = (range: { low: number, high: number }, fn: SurfaceFunction): 
       indices.push(
         // top left | bot left | bot right
         i * r + j + 1, i * r + j, i * r + r + j,
-        // top left | top right | bot right
-        i * r + j + 1, i * r + r + j + 1, i * r + r + j,
+        // bot right | top left | top right
+        i * r + r + j, i * r + j + 1, i * r + r + j + 1,
       );
     }
   }
