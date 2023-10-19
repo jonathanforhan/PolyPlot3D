@@ -1,6 +1,7 @@
 import './style.css'
 import { WebGPURenderer } from './gfx/webgpu-renderer'
-import { Bunny } from './gfx/actors/bunny';
+import { Axis } from './gfx/actors/axis';
+import { Surface } from './gfx/actors/surface';
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
@@ -11,8 +12,18 @@ const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
       ? await WebGPURenderer.new(canvas, context)
       : null;
 
-    const bunny = await Bunny.new();
-    renderer?.addActor(bunny);
+    const axis = Axis.new();
+    renderer?.addActor(axis);
+
+    const surface1 = Surface.new({
+      range: {
+        low: -50,
+        high: 50
+      },
+      fn: (x, y) => (7 * x * y) / (Math.pow(Math.E, (x * x + y * y)))
+    });
+    renderer?.addActor(surface1);
+    renderer?.addActor(surface1.newWire().actor);
 
     await renderer?.render();
   } catch (e) {

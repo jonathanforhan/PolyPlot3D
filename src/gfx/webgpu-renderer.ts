@@ -1,4 +1,4 @@
-import { Actor } from "./actor.ts";
+import { Actor, CullMode, Topology } from "./actor.ts";
 import { ActorID, Renderer } from "./renderer.ts";
 import { v1 as uuid } from 'uuid';
 import { defaultVert } from "./shaders.ts";
@@ -41,6 +41,7 @@ export class WebGPURenderer extends Renderer {
     super(canvas, context);
     this.device = device;
     this.actors = {};
+    this.canvas.addEventListener('click', async () => this.canvas.requestPointerLock());
   }
 
   /* Adds actor to actor record via a uuid, add's shader to shader registry if needed */
@@ -49,33 +50,11 @@ export class WebGPURenderer extends Renderer {
     this.shaderModules[actor.fragmentShader.name] ??= this.device.createShaderModule({ code: actor.fragmentShader.get() });
     const vertexBuffer = actor.mesh && this.mapBuffer(actor.mesh.positions, GPUBufferUsage.VERTEX);
     const indexBuffer = actor.mesh && this.mapBuffer(actor.mesh.indices, GPUBufferUsage.INDEX);
-    const pipeline = this.device.createRenderPipeline({
-      vertex: {
-        module: this.shaderModules[actor.vertexShader.name] as GPUShaderModule,
-        entryPoint: "vertex_main",
-        buffers: [
-          {
-            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
-            arrayStride: 4 * 3,
-            stepMode: "vertex",
-          }
-        ],
-      },
-      fragment: {
-        module: this.shaderModules[actor.fragmentShader.name] as GPUShaderModule,
-        entryPoint: "fragment_main",
-        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
-      },
-      primitive: {
-        topology: actor.topology,
-        cullMode: 'back',
-      },
-      depthStencil: {
-        depthWriteEnabled: true,
-        depthCompare: 'less',
-        format: 'depth24plus',
-      },
-      layout: "auto",
+    const pipeline = this.createPipeline({
+      vertexShaderName: actor.vertexShader.name,
+      fragmentShaderName: actor.fragmentShader.name,
+      topology: actor.topology,
+      cullMode: actor.cullMode,
     });
     const { buffer, bindGroup } = this.createUniform(pipeline, 16 * 4, 1, 0);
 
@@ -124,47 +103,27 @@ export class WebGPURenderer extends Renderer {
       }
     };
 
-    const viewProjectionPipeline = this.device.createRenderPipeline({
-      vertex: {
-        module: this.device.createShaderModule({ code: defaultVert.default }),
-        entryPoint: "vertex_main",
-        buffers: [
-          {
-            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
-            arrayStride: 4 * 3,
-            stepMode: "vertex",
-          }
-        ],
-      },
-      fragment: {
-        module: this.device.createShaderModule({ code: defaultFrag.default }),
-        entryPoint: "fragment_main",
-        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
-      },
-      primitive: {
-        topology: 'triangle-list',
-        cullMode: 'back',
-      },
-      depthStencil: {
-        depthWriteEnabled: true,
-        depthCompare: 'less',
-        format: 'depth24plus',
-      },
-      layout: "auto",
+    this.shaderModules['default.vert.wgsl'] ??= this.device.createShaderModule({ code: defaultVert.default });
+    this.shaderModules['default.frag.wgsl'] ??= this.device.createShaderModule({ code: defaultFrag.default });
+
+    const viewProjectionPipeline = this.createPipeline({
+      vertexShaderName: "default.vert.wgsl",
+      fragmentShaderName: "default.frag.wgsl",
+      topology: "triangle-list",
+      cullMode: "none",
     });
     const viewProjectionUniform = this.createUniform(viewProjectionPipeline, 16 * 4 * 2, 0, 0);
 
     let view: Mat4 = mat4.identity();
-    view[14] = -10;
 
-    const getProjection = () => mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 100);
+    const getProjection = () => mat4.perspective((2 * Math.PI) / 5, this.canvas.width / this.canvas.height, 1, 1000);
     let projection = getProjection();
 
     this.device.queue.writeBuffer(viewProjectionUniform.buffer, 0, view as Float32Array);
     this.device.queue.writeBuffer(viewProjectionUniform.buffer, 16 * 4, projection as Float32Array);
 
     const inputHandler = new InputHandler();
-    const s = 10; // sensivity
+    const s = 25; // sensivity
     inputHandler.bindKey({ key: 'w', callback: (dt) => this.camera.translateForward(dt * s) });
     inputHandler.bindKey({ key: 'a', callback: (dt) => this.camera.translateLeft(dt * s) });
     inputHandler.bindKey({ key: 's', callback: (dt) => this.camera.translateBackward(dt * s) });
@@ -174,7 +133,15 @@ export class WebGPURenderer extends Renderer {
     inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
     inputHandler.apply();
 
-    const frame = () => {
+    let [then, dt] = [0, 0];
+
+    let commandEncoder = this.device!.createCommandEncoder();
+    let renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+
+    const frame = (now: number) => {
+      dt = (now - then) / 1000;
+      then = now;
+
       const [currWidth, currHeight] = [
         this.canvas.clientWidth * devicePixelRatio,
         this.canvas.clientHeight * devicePixelRatio
@@ -194,27 +161,28 @@ export class WebGPURenderer extends Renderer {
       }
       (renderPassDescriptor.colorAttachments as any[])[0].view = (<GPUCanvasContext>this.context).getCurrentTexture().createView();
 
-      const commandEncoder = this.device!.createCommandEncoder();
-      const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+      commandEncoder = this.device.createCommandEncoder();
+      renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
-      inputHandler.loopCallbacks(0);
+      inputHandler.loopCallbacks(dt);
       this.camera.apply(view);
-
       this.device.queue.writeBuffer(viewProjectionUniform.buffer, 0, view as Float32Array);
       this.device.queue.writeBuffer(viewProjectionUniform.buffer, 16 * 4, projection as Float32Array);
 
-      Object.values(this.actors).forEach(actor => {
-        renderPassEncoder.setPipeline(actor.pipeline!);
-        renderPassEncoder.setBindGroup(0, viewProjectionUniform.bindGroup);
-        renderPassEncoder.setBindGroup(1, actor.uniformBindGroup!);
+      for (let actor of Object.values(this.actors)) {
+          renderPassEncoder.setPipeline(actor.pipeline!);
+          renderPassEncoder.setBindGroup(0, viewProjectionUniform.bindGroup);
+          renderPassEncoder.setBindGroup(1, actor.uniformBindGroup!);
 
-        actor.modelMatrix = actor.transform(mat4.identity());
-        this.device.queue.writeBuffer(actor.uniformBuffer!, 0, actor.modelMatrix as Float32Array);
+          if (actor.transform !== undefined) {
+            actor.modelMatrix = actor.transform(mat4.identity());
+          }
+          this.device.queue.writeBuffer(actor.uniformBuffer!, 0, actor.modelMatrix as Float32Array);
 
-        actor.vertexBuffer && renderPassEncoder.setVertexBuffer(0, actor.vertexBuffer);
-        actor.indexBuffer && renderPassEncoder.setIndexBuffer(actor.indexBuffer, 'uint16');
-        actor.mesh && renderPassEncoder.drawIndexed(actor.mesh.indices.length);
-      });
+          actor.vertexBuffer && renderPassEncoder.setVertexBuffer(0, actor.vertexBuffer);
+          actor.indexBuffer && renderPassEncoder.setIndexBuffer(actor.indexBuffer, 'uint16');
+          renderPassEncoder.drawIndexed(actor.mesh!.indices.length);
+      }
 
       renderPassEncoder.end();
       this.device.queue.submit([commandEncoder.finish()]);
@@ -238,6 +206,43 @@ export class WebGPURenderer extends Renderer {
 
     buffer.unmap();
     return buffer;
+  }
+
+  /* Create a render pipeline */
+  public createPipeline(opts: {
+    vertexShaderName: string,
+    fragmentShaderName: string,
+    topology: Topology,
+    cullMode: CullMode,
+  }) {
+    return this.device.createRenderPipeline({
+      vertex: {
+        module: this.shaderModules[opts.vertexShaderName] as GPUShaderModule,
+        entryPoint: "vertex_main",
+        buffers: [
+          {
+            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+            arrayStride: 4 * 3,
+            stepMode: "vertex",
+          }
+        ],
+      },
+      fragment: {
+        module: this.shaderModules[opts.fragmentShaderName] as GPUShaderModule,
+        entryPoint: "fragment_main",
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+      },
+      primitive: {
+        topology: opts.topology,
+        cullMode: opts.cullMode,
+      },
+      depthStencil: {
+        depthWriteEnabled: true,
+        depthCompare: "less",
+        format: 'depth24plus',
+      },
+      layout: "auto",
+    });
   }
 
   /* Create a uniform buffer */

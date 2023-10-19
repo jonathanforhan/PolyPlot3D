@@ -3,6 +3,7 @@ import { Mesh } from "./mesh";
 
 export type Transform = (m: Mat4) => Mat4;
 export type Topology = GPUPrimitiveTopology;
+export type CullMode = GPUCullMode;
 
 export type ShaderStore = {
   name: string,  // name of shader like 'foo.vert.wgsl'
@@ -10,13 +11,26 @@ export type ShaderStore = {
 };
 
 export abstract class Actor {
-  abstract readonly mesh?: Mesh;
-  abstract modelMatrix: Mat4;
-  abstract transform: Transform;
-  abstract vertexShader: ShaderStore;
-  abstract fragmentShader: ShaderStore;
-  abstract topology: Topology;
+  public abstract mesh?: Mesh;
+  public abstract modelMatrix: Mat4;
+  public abstract transform?: Transform;
+  public abstract vertexShader: ShaderStore;
+  public abstract fragmentShader: ShaderStore;
+  public abstract topology: Topology;
+  public abstract cullMode: GPUCullMode; 
 
-  static async new(): Promise<Actor> { throw "Abstract class don't call this"; }
+  public static new(_?: any | undefined): any { throw "Abstract method must override"; }
+  public abstract newShared?(_?: any | undefined): SharedActor<Actor>;
+
+  public abstract duplicate(): Actor;
 };
+
+export class SharedActor<T extends Actor> {
+  public actor: T;
+
+  constructor(actor: T) {
+    this.actor = actor;
+    delete this.actor.newShared;
+  }
+}
 

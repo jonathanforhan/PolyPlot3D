@@ -1,10 +1,10 @@
-import { defaultVert } from "../shaders";
-import { defaultFrag } from "../shaders";
+import { axisVert } from "../shaders";
+import { axisFrag } from "../shaders";
 import { Mat4, mat4 } from "wgpu-matrix";
 import { Actor, CullMode, ShaderStore, SharedActor, Topology, Transform } from "../actor";
-import { ImportType, Mesh } from "../mesh";
+import { Mesh } from "../mesh";
 
-export class Bunny extends Actor {
+export class Axis extends Actor {
   public mesh: Mesh;
   public modelMatrix: Mat4;
   public transform?: Transform;
@@ -32,57 +32,74 @@ export class Bunny extends Actor {
     this.cullMode = cullMode;
   }
 
-  public static override async new(): Promise<Bunny> {
-    return new Bunny(
-      await Mesh.import("bunny", ImportType.OBJ),
+  public static override new(): Axis {
+    return new Axis(
+      new Mesh(
+        new Float32Array([
+          0, -0.5, 0,
+          0, 0.5, 0,
+          -0.5, 0, 0,
+          0.5, 0, 0,
+          0, 0, -0.5,
+          0, 0, 0.5,
+        ]),
+        undefined,
+        undefined,
+        new Uint16Array([
+          0, 1,
+          2, 3,
+          4, 5,
+        ]),
+      ),
       mat4.identity(),
       undefined,
       {
-        name: 'default.vert.wgsl',
-        get: () => defaultVert.default,
+        name: 'axis.vert.wgsl',
+        get: () => axisVert.default,
       },
       {
-        name: 'default.frag.wgsl',
-        get: () => defaultFrag.default,
+        name: 'axis.frag.wgsl',
+        get: () => axisFrag.default,
       },
-      "triangle-list",
+      "line-list",
       "back",
-    );
+    )
   }
 
-  public newShared(): SharedActor<Bunny> {
-    return new SharedActor(new Bunny(
+  public newShared(_?: any): SharedActor<Actor> {
+    return new SharedActor(new Axis(
       this.mesh,
       mat4.identity(),
       undefined,
       {
-        name: 'default.vert.wgsl',
-        get: () => defaultVert.default,
+        name: 'axis.vert.wgsl',
+        get: () => axisVert.default,
       },
       {
-        name: 'default.frag.wgsl',
-        get: () => defaultFrag.default,
+        name: 'axis.frag.wgsl',
+        get: () => axisFrag.default,
       },
-      "triangle-list",
+      "line-list",
       "back",
     ));
   }
 
   public duplicate(): Actor {
-    return new Bunny(
+    return new Axis(
       this.mesh.duplicate(),
       mat4.identity(),
       undefined,
       {
-        name: 'default.vert.wgsl',
-        get: () => defaultVert.default,
+        name: 'axis.vert.wgsl',
+        get: () => axisVert.default,
       },
       {
-        name: 'default.frag.wgsl',
-        get: () => defaultFrag.default,
+        name: 'axis.frag.wgsl',
+        get: () => axisFrag.default,
       },
-      "triangle-list",
+      "line-list",
       "back",
-    )
+    );
   }
 }
+

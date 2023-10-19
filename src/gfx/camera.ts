@@ -17,12 +17,12 @@ export class Camera {
     this.front = vec3.fromValues(0, 0, -1);
     this.up = vec3.fromValues(0, 1, 0);
     this.x = 0;
-    this.y = 0
+    this.y = 0;
     this.yaw = 90;
     this.pitch = 0;
     this.fov = 45;
     this.lookAround(0, 0);
-    this.translateBackward(10);
+    this.translateUp(50);
   }
 
   public translateForward(s: number) {
