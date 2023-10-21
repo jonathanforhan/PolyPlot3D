@@ -10,6 +10,9 @@ import * as surfaceFrag from '../../shaders/surface.frag.wgsl?raw';
 import * as wireVert from '../../shaders/wire.vert.wgsl?raw';
 import * as wireFrag from '../../shaders/wire.frag.wgsl?raw';
 
+import * as stencilVert from '../../shaders/stencil.vert.wgsl?raw';
+import * as stencilFrag from '../../shaders/stencil.frag.wgsl?raw';
+
 export {
   defaultVert,
   defaultFrag,
@@ -19,4 +22,6 @@ export {
   surfaceFrag,
   wireVert,
   wireFrag,
+  stencilVert,
+  stencilFrag,
 }

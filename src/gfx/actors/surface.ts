@@ -4,27 +4,40 @@ import { Mat4, mat4 } from "wgpu-matrix";
 import { Actor, CullMode, ShaderStore, SharedActor, Topology, Transform } from "../actor";
 import { Mesh } from "../mesh";
 
-const createMesh = (range: { low: number, high: number }, fn: SurfaceFunction): Mesh => {
-  let [vertices, indices] = [new Array, new Array];
-  let [x, y] = [0, 0];
-  let s = 0.05; // scale
-  let m = 30; // mutator
-  let r = range.high - range.low;
+export type Range = {
+  x: { low: number, high: number },
+  y: { low: number, high: number },
+  z: { low: number, high: number },
+}
 
-  for (let i = range.low; i < range.high; i++) {
-    for (let j = range.low; j < range.high; j++) {
-      [x, y] = [(i) * s, (j) * s];
-      vertices.push(x * m, fn(x, y) * m, y * m);
+export type SurfaceFunction = (x: number, y: number) => number;
+
+const createMesh = (range: Range, fn: SurfaceFunction): Mesh => {
+  let [vertices, indices] = [new Array, new Array];
+  let [rx, ry] = [range.x.high - range.x.low, range.y.high - range.y.low];
+
+  for (let i = range.x.low; i < range.x.high; i++) {
+    for (let j = range.y.low; j < range.y.high; j++) {
+      let [x, y] = [i, j];
+      let z = fn(x, y);
+
+      z >= range.z.low && z <= range.z.high
+        ? vertices.push(x, z, y)
+        : vertices.push(NaN, NaN, NaN)
     }
   }
 
-  for (let i = 0; i < r - 1; i++) {
-    for (let j = 0; j < r - 1; j++) {
+  for (let i = 0; i < rx - 1; i++) {
+    for (let j = 0; j < ry - 1; j++) {
+      if (isNaN(vertices[i * rx * 3 + j * 3])) {
+        continue;
+      }
+
       indices.push(
         // top left | bot left | bot right
-        i * r + j + 1, i * r + j, i * r + r + j,
+        i * ry + j + 1, i * ry + j, i * ry + ry + j,
         // bot right | top left | top right
-        i * r + r + j, i * r + j + 1, i * r + r + j + 1,
+        i * ry + ry + j, i * ry + j + 1, i * ry + ry + j + 1,
       );
     }
   }
@@ -38,8 +51,6 @@ const createMesh = (range: { low: number, high: number }, fn: SurfaceFunction): 
     new Uint16Array(indices),
   );
 }
-
-export type SurfaceFunction = (x: number, y: number) => number;
 
 export class Surface extends Actor {
   public mesh: Mesh;
@@ -70,7 +81,7 @@ export class Surface extends Actor {
   }
 
   public static override new(opts: {
-    range: { low: number, high: number },
+    range: Range,
     fn: SurfaceFunction
   }): Surface {
     return new Surface(

@@ -17,10 +17,11 @@ const context = canvas.getContext("webgpu") || canvas.getContext("webgl2");
 
     const surface1 = Surface.new({
       range: {
-        low: -50,
-        high: 50
+        x: { low: -100, high: 100 },
+        y: { low: -100, high: 100 },
+        z: { low: -100, high: 100 },
       },
-      fn: (x, y) => (4 * x * y) / (Math.pow(Math.E, (x * x + y * y)))
+      fn: (x, y) => ((x * x + y * y) / 50) + 1
     });
     renderer?.addActor(surface1);
     renderer?.addActor(surface1.newWire().actor);
