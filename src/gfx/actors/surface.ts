@@ -10,19 +10,21 @@ export type Range = {
   z: { low: number, high: number },
 }
 
-export type SurfaceFunction = (x: number, y: number) => number;
+export type SurfaceFunction = (arg: { x: number, y: number }) => number;
 
 const createMesh = (range: Range, fn: SurfaceFunction): Mesh => {
   let [vertices, indices] = [new Array, new Array];
   let [rx, ry] = [range.x.high - range.x.low, range.y.high - range.y.low];
+  const s = 0.1;
 
   for (let i = range.x.low; i < range.x.high; i++) {
     for (let j = range.y.low; j < range.y.high; j++) {
-      let [x, y] = [i, j];
-      let z = fn(x, y);
+      let [x, y] = [i * s, j * s];
+      let z = fn({ x, y });
+      let k = z / s;
 
-      z >= range.z.low && z <= range.z.high
-        ? vertices.push(x, z, y)
+      k >= range.z.low && k <= range.z.high
+        ? vertices.push(i, k, j)
         : vertices.push(NaN, NaN, NaN)
     }
   }

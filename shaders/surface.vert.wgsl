@@ -19,7 +19,8 @@ fn vertex_main(@location(0) position: vec3<f32>) -> VertexOutput {
     var output: VertexOutput;
     var position_v4: vec4<f32> = vec4(position, 1.0);
     output.Position = view_projection.projection * view_projection.view * model * position_v4;
-    output.color = 0.5 * (position_v4 + vec4(1.0, 1.0, 1.0, 1.0));
+
+    output.color = 0.3 * ((position_v4 * 0.2) + vec4(10.0, 10.0, 10.0, 10.0));
     
     return output;
 }

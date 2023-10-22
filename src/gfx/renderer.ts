@@ -1,3 +1,4 @@
+import { InputHandler } from "../events/input-handler";
 import { Actor } from "./actor";
 import { Camera } from "./camera";
 
@@ -5,6 +6,7 @@ export type ActorID = string;
 
 /* Renderer Parent Class */
 export abstract class Renderer {
+  public readonly inputHandler: InputHandler;
   protected readonly context: GPUCanvasContext | WebGL2RenderingContext;
   protected readonly canvas: HTMLCanvasElement;
   protected readonly camera: Camera;
@@ -12,6 +14,7 @@ export abstract class Renderer {
   protected readonly shaderModules: Record<string, GPUShaderModule | WebGLShader>;
 
   protected constructor(canvas: HTMLCanvasElement, context: GPUCanvasContext | WebGL2RenderingContext) {
+    this.inputHandler = new InputHandler;
     this.context = context;
     this.canvas = canvas;
     this.camera = new Camera;

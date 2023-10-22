@@ -1,15 +1,37 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PolyPlot3D</title>
-  </head>
-  <body>
-    <div id="app">
-      <canvas id="canvas"></canvas>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PolyPlot3D</title>
+  <script defer src="//unpkg.com/mathlive"></script>
+</head>
+
+<body>
+  <div id="app">
+    <div class="input-wrapper">
+      <div class="input" id="main-input">
+        <input type="checkbox"></input>
+        <math-field></math-field>
+      </div>
+      <div class="input">
+        <input type="checkbox"></input>
+        <math-field></math-field>
+      </div>
+      <div class="input">
+        <input type="checkbox"></input>
+        <math-field></math-field>
+      </div>
+      <div class="input">
+        <input type="checkbox"></input>
+        <math-field></math-field>
+      </div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+    <canvas id="canvas"></canvas>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
 </html>

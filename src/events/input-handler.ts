@@ -28,14 +28,12 @@ export class InputHandler {
   public apply() {
     document.addEventListener('keydown', e => {
       if (this.bindings[e.key] !== undefined) {
-        e.preventDefault();
         this.bindings[e.key].state = true;
       }
     });
 
     document.addEventListener('keyup', e => {
       if (this.bindings[e.key] !== undefined) {
-        e.preventDefault();
         this.bindings[e.key].state = false;
       }
     });
@@ -48,8 +46,10 @@ export class InputHandler {
   }
 
   public loopCallbacks(dt: number) {
-    Object.values(this.bindings).forEach(binding => {
-      binding.state && binding.callback(dt);
-    });
+    if (document.pointerLockElement) {
+      Object.values(this.bindings).forEach(binding => {
+        binding.state && binding.callback(dt);
+      });
+    }
   }
 }

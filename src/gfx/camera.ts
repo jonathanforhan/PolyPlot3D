@@ -13,7 +13,7 @@ export class Camera {
   public fov: number;
 
   constructor() {
-    this.position = vec3.fromValues(0, 1.8, 3);
+    this.position = vec3.fromValues(0, 0, 0);
     this.front = vec3.fromValues(0, 0, -1);
     this.up = vec3.fromValues(0, 1, 0);
     this.x = 0;
@@ -21,10 +21,13 @@ export class Camera {
     this.yaw = 90;
     this.pitch = 0;
     this.fov = 45;
+
+    // nice starting position for camera
     this.lookAround(0, 0);
-    this.translateUp(50);
-    this.translateBackward(50);
-    this.translateLeft(50);
+    this.translateBackward(20);
+    this.translateLeft(20);
+    this.translateUp(10);
+    this.lookAround(400, -100);
   }
 
   public translateForward(s: number) {

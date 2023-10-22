@@ -1,4 +1,4 @@
 @fragment
 fn fragment_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-    return color / 8;
+    return color / 4;
 }

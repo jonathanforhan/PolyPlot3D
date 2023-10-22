@@ -42,6 +42,16 @@ export class WebGPURenderer extends Renderer {
     this.device = device;
     this.actors = {};
     this.canvas.addEventListener('click', async () => this.canvas.requestPointerLock());
+
+    const s = 25; // sensivity
+    this.inputHandler.bindKey({ key: 'w', callback: (dt) => this.camera.translateForward(dt * s) });
+    this.inputHandler.bindKey({ key: 'a', callback: (dt) => this.camera.translateLeft(dt * s) });
+    this.inputHandler.bindKey({ key: 's', callback: (dt) => this.camera.translateBackward(dt * s) });
+    this.inputHandler.bindKey({ key: 'd', callback: (dt) => this.camera.translateRight(dt * s) });
+    this.inputHandler.bindKey({ key: 'q', callback: (dt) => this.camera.translateUp(dt * s) });
+    this.inputHandler.bindKey({ key: 'e', callback: (dt) => this.camera.translateDown(dt * s) });
+    this.inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
+    this.inputHandler.apply();
   }
 
   /* Adds actor to actor record via a uuid, add's shader to shader registry if needed */
@@ -122,17 +132,6 @@ export class WebGPURenderer extends Renderer {
     this.device.queue.writeBuffer(viewProjectionUniform.buffer, 0, view as Float32Array);
     this.device.queue.writeBuffer(viewProjectionUniform.buffer, 16 * 4, projection as Float32Array);
 
-    const inputHandler = new InputHandler();
-    const s = 25; // sensivity
-    inputHandler.bindKey({ key: 'w', callback: (dt) => this.camera.translateForward(dt * s) });
-    inputHandler.bindKey({ key: 'a', callback: (dt) => this.camera.translateLeft(dt * s) });
-    inputHandler.bindKey({ key: 's', callback: (dt) => this.camera.translateBackward(dt * s) });
-    inputHandler.bindKey({ key: 'd', callback: (dt) => this.camera.translateRight(dt * s) });
-    inputHandler.bindKey({ key: 'q', callback: (dt) => this.camera.translateUp(dt * s) });
-    inputHandler.bindKey({ key: 'e', callback: (dt) => this.camera.translateDown(dt * s) });
-    inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
-    inputHandler.apply();
-
     let [then, dt] = [0, 0];
 
     let commandEncoder = this.device!.createCommandEncoder();
@@ -164,7 +163,7 @@ export class WebGPURenderer extends Renderer {
       commandEncoder = this.device.createCommandEncoder();
       renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
-      inputHandler.loopCallbacks(dt);
+      this.inputHandler.loopCallbacks(dt);
       this.camera.apply(view);
       this.device.queue.writeBuffer(viewProjectionUniform.buffer, 0, view as Float32Array);
       this.device.queue.writeBuffer(viewProjectionUniform.buffer, 16 * 4, projection as Float32Array);
