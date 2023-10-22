@@ -4,7 +4,6 @@ import { v1 as uuid } from 'uuid';
 import { defaultVert } from "./shaders.ts";
 import { defaultFrag } from "./shaders.ts";
 import { Mat4, mat4 } from "wgpu-matrix";
-import { InputHandler } from "../events/input-handler.ts";
 
 type ActorImpl = {
   vertexBuffer?: GPUBuffer;
