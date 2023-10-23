@@ -26,7 +26,7 @@ fn vertex_main(@location(0) position: vec3<f32>) -> VertexOutput {
         1.0
     );
     output.Position = view_projection.projection * view_projection.view * model * position_v4;
-    output.color = vec4(0, 0, 0, 0.1);
+    output.color = vec4(0, 0, 0, 1);
     return output;
 }
 
