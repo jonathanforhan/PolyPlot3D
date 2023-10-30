@@ -3,7 +3,7 @@ import { ActorID, Renderer } from "./renderer.ts";
 import { v1 as uuid } from 'uuid';
 import { defaultVert } from "./shaders.ts";
 import { defaultFrag } from "./shaders.ts";
-import { Mat4, mat4 } from "wgpu-matrix";
+import { Mat4, mat4, vec3 } from "wgpu-matrix";
 
 type ActorImpl = {
   vertexBuffer?: GPUBuffer;
@@ -49,6 +49,18 @@ export class WebGPURenderer extends Renderer {
     this.inputHandler.bindKey({ key: 'd', callback: (dt) => this.camera.translateRight(dt * s) });
     this.inputHandler.bindKey({ key: 'q', callback: (dt) => this.camera.translateUp(dt * s) });
     this.inputHandler.bindKey({ key: 'e', callback: (dt) => this.camera.translateDown(dt * s) });
+    this.inputHandler.bindKey({ key: 'x', callback: (_dt) => {
+      this.camera.position = vec3.fromValues(-180, 0, 0);
+      this.camera.yaw = 0;
+      this.camera.pitch = 0;
+      this.camera.front = vec3.fromValues(1, 0, 0);
+    }});
+    this.inputHandler.bindKey({ key: 'y', callback: (_dt) => {
+      this.camera.position = vec3.fromValues(0, 0, -180);
+      this.camera.yaw = 90;
+      this.camera.pitch = 0;
+      this.camera.front = vec3.fromValues(0, 0, 1);
+    }});
     this.inputHandler.bindMouse({ callback: (x, y) => this.camera.lookAround(x, y) });
     this.inputHandler.apply();
   }
